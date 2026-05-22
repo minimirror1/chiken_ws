@@ -74,6 +74,7 @@ ros-jazzy-rosidl-default-runtime = "*"
 ros-jazzy-sensor-msgs = "*"
 ros-jazzy-std-msgs = "*"
 ros-jazzy-std-srvs = "*"
+dynamixel-sdk = "*"
 ```
 
 설치 명령:

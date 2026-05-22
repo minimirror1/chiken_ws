@@ -24,6 +24,7 @@ ros-jazzy-std-msgs = "*"
 ros-jazzy-std-srvs = "*"
 fastapi = "*"
 uvicorn = "*"
+dynamixel-sdk = "*"
 
 [tasks]
 build = "colcon build"

@@ -195,6 +195,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/noarch/distro-1.9.0-pyhd8ed1ab_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/dnspython-2.8.0-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/docutils-0.22.4-pyhd8ed1ab_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/dynamixel-sdk-4.0.5-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/email-validator-2.3.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/email_validator-2.3.0-hd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/empy-3.3.4-pyh9f0ad1d_1.tar.bz2
@@ -243,6 +244,7 @@ environments:
       - conda: https://prefix.dev/conda-forge/noarch/pyflakes-3.4.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/pygments-2.20.0-pyhd8ed1ab_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/pyparsing-3.3.2-pyhcf101f3_0.conda
+      - conda: https://prefix.dev/conda-forge/noarch/pyserial-3.5-pyhcf101f3_2.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-9.0.3-pyhc364b38_1.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-cov-7.1.0-pyhcf101f3_0.conda
       - conda: https://prefix.dev/conda-forge/noarch/pytest-repeat-0.9.4-pyhd8ed1ab_0.conda
@@ -3086,6 +3088,18 @@ packages:
   run_exports: {}
   size: 438002
   timestamp: 1766092633160
+- conda: https://prefix.dev/conda-forge/noarch/dynamixel-sdk-4.0.5-pyhcf101f3_0.conda
+  sha256: c932285120782291ad9bd84f5b050bf3fab339c4eacddda08f15453748339bdf
+  md5: a732735ba0461b13384674d4e0126ea8
+  depends:
+  - python >=3.10
+  - pyserial
+  - python
+  license: Apache-2.0
+  license_family: APACHE
+  run_exports: {}
+  size: 39548
+  timestamp: 1778051844251
 - conda: https://prefix.dev/conda-forge/noarch/email-validator-2.3.0-pyhd8ed1ab_0.conda
   sha256: c37320864c35ef996b0e02e289df6ee89582d6c8e233e18dc9983375803c46bb
   md5: 3bc0ac31178387e8ed34094d9481bfe8
@@ -3656,6 +3670,17 @@ packages:
   run_exports: {}
   size: 110893
   timestamp: 1769003998136
+- conda: https://prefix.dev/conda-forge/noarch/pyserial-3.5-pyhcf101f3_2.conda
+  sha256: 8c618e8ca376d73133c9971abe45463a48c9cfb529788d609fd19568764941ba
+  md5: b27a6cd32160c34682ce6053b04c12c6
+  depends:
+  - python >=3.10
+  - python
+  license: BSD-3-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 73910
+  timestamp: 1767289527295
 - conda: https://prefix.dev/conda-forge/noarch/pytest-9.0.3-pyhc364b38_1.conda
   sha256: 960f59442173eee0731906a9077bd5ccf60f4b4226f05a22d1728ab9a21a879c
   md5: 6a991452eadf2771952f39d43615bb3e

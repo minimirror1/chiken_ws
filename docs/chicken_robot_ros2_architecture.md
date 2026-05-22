@@ -18,7 +18,7 @@
 | 웹 UI | FastAPI + 브라우저 앱 + Three.js |
 | 패턴 파일 | YAML |
 | 모션값 | 추상값 `-100~100` |
-| DYNAMIXEL raw position | `0~4095` |
+| DYNAMIXEL raw position | 모델별 범위 사용: XM430-W210-T `0~4095`, XL320 `0~1023` |
 | 진단 읽기 | Sync Read 고정 |
 
 ## 3. 워크스페이스 구조
