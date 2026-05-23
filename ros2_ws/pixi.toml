@@ -1,0 +1,31 @@
+[workspace]
+name = "chicken-robot-ros2-ws"
+version = "0.1.0"
+description = "ROS2 Jazzy environment for the animatronic chicken robot workspace"
+channels = [
+  "https://prefix.dev/robostack-jazzy",
+  "https://prefix.dev/conda-forge",
+]
+platforms = ["linux-aarch64"]
+
+[dependencies]
+python = "3.12.*"
+cmake = "*"
+make = "*"
+pkg-config = "*"
+colcon-common-extensions = "*"
+ros-jazzy-ros-base = "*"
+ros-jazzy-ament-cmake = "*"
+ros-jazzy-builtin-interfaces = "*"
+ros-jazzy-rosidl-default-generators = "*"
+ros-jazzy-rosidl-default-runtime = "*"
+ros-jazzy-sensor-msgs = "*"
+ros-jazzy-std-msgs = "*"
+ros-jazzy-std-srvs = "*"
+fastapi = "*"
+uvicorn = "*"
+
+[tasks]
+build = "colcon build"
+build-interfaces = "colcon build --packages-select animatronic_interfaces"
+test-interfaces = "colcon test --packages-select animatronic_interfaces && colcon test-result --verbose"

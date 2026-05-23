@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    mock_mode: true
+    port: "/dev/ttyUSB1"
+    sensor_model: "IWR6843"
+    detection_timeout_ms: 750

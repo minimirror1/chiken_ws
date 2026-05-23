@@ -1,0 +1,5 @@
+uint8 id
+string command
+---
+bool success
+string message

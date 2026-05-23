@@ -1,0 +1,6 @@
+/**:
+  ros__parameters:
+    mock_mode: true
+    host: "0.0.0.0"
+    port: 8080
+    log_dir: "logs"

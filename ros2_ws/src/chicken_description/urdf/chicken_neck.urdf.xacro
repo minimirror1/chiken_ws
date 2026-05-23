@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<robot name="chicken_neck">
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.07" length="0.04"/>
+      </geometry>
+      <material name="base_gray">
+        <color rgba="0.25 0.25 0.25 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <link name="lower_yaw_link">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.06"/>
+      </geometry>
+      <material name="neck_red">
+        <color rgba="0.75 0.08 0.05 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="lower_yaw" type="revolute">
+    <parent link="base_link"/>
+    <child link="lower_yaw_link"/>
+    <origin xyz="0 0 0.04" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="1.0" velocity="1.0"/>
+  </joint>
+
+  <link name="lower_pitch_link">
+    <visual>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.12"/>
+      </geometry>
+      <material name="neck_orange">
+        <color rgba="0.9 0.35 0.04 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="lower_pitch" type="revolute">
+    <parent link="lower_yaw_link"/>
+    <child link="lower_pitch_link"/>
+    <origin xyz="0 0 0.06" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.7854" upper="0.7854" effort="1.0" velocity="1.0"/>
+  </joint>
+
+  <link name="upper_yaw_link">
+    <visual>
+      <origin xyz="0 0 0.025" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.035" length="0.05"/>
+      </geometry>
+      <material name="neck_yellow">
+        <color rgba="0.95 0.68 0.08 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="upper_yaw" type="revolute">
+    <parent link="lower_pitch_link"/>
+    <child link="upper_yaw_link"/>
+    <origin xyz="0 0 0.12" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.5708" upper="1.5708" effort="1.0" velocity="1.0"/>
+  </joint>
+
+  <link name="upper_pitch_link">
+    <visual>
+      <origin xyz="0 0 0.06" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.03" length="0.12"/>
+      </geometry>
+      <material name="neck_light">
+        <color rgba="0.95 0.82 0.35 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="upper_pitch" type="revolute">
+    <parent link="upper_yaw_link"/>
+    <child link="upper_pitch_link"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.7854" upper="0.7854" effort="1.0" velocity="1.0"/>
+  </joint>
+
+  <link name="head_link">
+    <visual>
+      <origin xyz="0 0 0.153" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.055"/>
+      </geometry>
+      <material name="head_white">
+        <color rgba="0.95 0.92 0.82 1.0"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="head_fixed" type="fixed">
+    <parent link="upper_pitch_link"/>
+    <child link="head_link"/>
+    <origin xyz="0 0 0.12" rpy="0 0 0"/>
+  </joint>
+</robot>

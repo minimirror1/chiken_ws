@@ -1,0 +1,9 @@
+string pattern_name
+bool preview_only
+bool allow_interrupt
+---
+bool success
+string message
+---
+float32 progress
+string current_keyframe

@@ -1,0 +1,23 @@
+motor_node:
+  ros__parameters:
+    namespace: "/animatronic"
+    port: "/dev/ttyUSB0"
+    baudrate: 57600
+    protocol_version: 2.0
+    mock_mode: true
+    state_publish_rate_hz: 20.0
+    diagnostics_publish_rate_hz: 2.0
+    joint_names:
+      - lower_yaw
+      - lower_pitch
+      - upper_yaw
+      - upper_pitch
+    motor_ids: [1, 2, 3, 4]
+    motor_models:
+      - XM430-W210-T
+      - XM430-W210-T
+      - XL320
+      - XL320
+    joint_min_raw: [1024, 1024, 1024, 1024]
+    joint_home_raw: [2048, 2048, 2048, 2048]
+    joint_max_raw: [3072, 3072, 3072, 3072]

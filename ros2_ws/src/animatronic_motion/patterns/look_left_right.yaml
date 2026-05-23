@@ -1,0 +1,32 @@
+name: look_left_right
+description: Simple head sweep sample for validation and smoke testing.
+loop: false
+keyframes:
+  - time_ms: 0
+    interpolation: hold
+    joints:
+      lower_yaw: 0
+      lower_pitch: 0
+      upper_yaw: 0
+      upper_pitch: 0
+  - time_ms: 600
+    interpolation: ease_in_out
+    joints:
+      lower_yaw: -45
+      lower_pitch: 0
+      upper_yaw: -25
+      upper_pitch: 5
+  - time_ms: 1200
+    interpolation: linear
+    joints:
+      lower_yaw: 45
+      lower_pitch: 0
+      upper_yaw: 25
+      upper_pitch: 5
+  - time_ms: 1800
+    interpolation: snap
+    joints:
+      lower_yaw: 0
+      lower_pitch: 0
+      upper_yaw: 0
+      upper_pitch: 0

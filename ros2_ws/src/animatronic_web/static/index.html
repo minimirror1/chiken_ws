@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Animatronic Dashboard</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7f9;
+        --panel: #ffffff;
+        --text: #1b1f23;
+        --muted: #667085;
+        --line: #d8dee4;
+        --accent: #1f7a6d;
+        --danger: #b42318;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      header {
+        align-items: center;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        padding: 12px 18px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 650;
+        margin: 0;
+      }
+      main {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: minmax(260px, 360px) 1fr;
+        padding: 16px;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+      }
+      h2 {
+        font-size: 15px;
+        margin: 0 0 12px;
+      }
+      label {
+        color: var(--muted);
+        display: block;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      input,
+      select,
+      textarea {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font: inherit;
+        padding: 8px;
+        width: 100%;
+      }
+      textarea {
+        min-height: 220px;
+        resize: vertical;
+      }
+      button {
+        background: #eef2f6;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+        min-height: 36px;
+        padding: 8px 10px;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+      button.danger {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: white;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+      .buttons {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .status {
+        background: #0f1720;
+        border-radius: 6px;
+        color: #d6e2ee;
+        max-height: 360px;
+        overflow: auto;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+      .placeholder {
+        align-items: center;
+        border: 1px dashed #aab4c0;
+        border-radius: 8px;
+        color: var(--muted);
+        display: flex;
+        justify-content: center;
+        min-height: 180px;
+      }
+      .workspace {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      @media (max-width: 860px) {
+        main,
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Animatronic Dashboard</h1>
+      <div>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+      </div>
+    </header>
+    <main>
+      <div class="grid">
+        <section>
+          <h2>Controls</h2>
+          <div class="grid">
+            <div>
+              <label for="mode">Mode</label>
+              <select id="mode">
+                <option value="stopped">Stopped</option>
+                <option value="detection">Detection</option>
+                <option value="random">Random</option>
+                <option value="test">Test</option>
+              </select>
+            </div>
+            <div class="buttons">
+              <button class="primary" id="set-mode">Set Mode</button>
+              <button id="home">Home</button>
+              <button id="torque-on">Torque On</button>
+              <button id="torque-off">Torque Off</button>
+              <button class="danger" id="stop">Stop</button>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h2>Patterns</h2>
+          <div class="grid">
+            <select id="patterns"></select>
+            <textarea id="pattern-content" spellcheck="false"></textarea>
+            <button class="primary" id="save-pattern">Save Pattern</button>
+          </div>
+        </section>
+      </div>
+      <div class="grid">
+        <section>
+          <h2>Status</h2>
+          <pre id="status" class="status">Connecting...</pre>
+        </section>
+        <div class="workspace">
+          <section>
+            <h2>Three.js Viewer</h2>
+            <div class="placeholder">3D viewer placeholder</div>
+          </section>
+          <section>
+            <h2>Timeline Editor</h2>
+            <div class="placeholder">Timeline editor placeholder</div>
+          </section>
+        </div>
+      </div>
+    </main>
+    <script>
+      const passwordInput = document.getElementById("password");
+      const statusEl = document.getElementById("status");
+      const patternsEl = document.getElementById("patterns");
+      const patternContentEl = document.getElementById("pattern-content");
+
+      function password() {
+        return passwordInput.value;
+      }
+
+      async function api(path, options = {}) {
+        const headers = { ...(options.headers || {}) };
+        if (password()) headers["X-Animatronic-Password"] = password();
+        if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+        const response = await fetch(path, { ...options, headers });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || response.statusText);
+        return data;
+      }
+
+      async function refreshStatus() {
+        try {
+          statusEl.textContent = JSON.stringify(await api("/api/status"), null, 2);
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      async function refreshPatterns() {
+        const data = await api("/api/patterns");
+        patternsEl.innerHTML = "";
+        for (const name of data.patterns) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          patternsEl.appendChild(option);
+        }
+        if (data.patterns.length) await loadPattern(data.patterns[0]);
+      }
+
+      async function loadPattern(name) {
+        const data = await api(`/api/patterns/${encodeURIComponent(name)}`);
+        patternContentEl.value = data.content;
+      }
+
+      async function command(path, body) {
+        const result = await api(path, {
+          method: "POST",
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        statusEl.textContent = JSON.stringify(result, null, 2);
+        await refreshStatus();
+      }
+
+      document.getElementById("set-mode").onclick = () =>
+        command("/api/mode", { mode: document.getElementById("mode").value });
+      document.getElementById("home").onclick = () => command("/api/home");
+      document.getElementById("stop").onclick = () => command("/api/stop");
+      document.getElementById("torque-on").onclick = () => command("/api/torque", { enabled: true });
+      document.getElementById("torque-off").onclick = () => command("/api/torque", { enabled: false });
+      patternsEl.onchange = () => loadPattern(patternsEl.value);
+      document.getElementById("save-pattern").onclick = async () => {
+        const name = patternsEl.value || "new_pattern";
+        await api(`/api/patterns/${encodeURIComponent(name)}`, {
+          method: "PUT",
+          body: JSON.stringify({ content: patternContentEl.value }),
+        });
+        await refreshPatterns();
+      };
+
+      function connectStatusSocket() {
+        const query = password() ? `?password=${encodeURIComponent(password())}` : "";
+        const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/status${query}`);
+        ws.onmessage = (event) => {
+          statusEl.textContent = JSON.stringify(JSON.parse(event.data), null, 2);
+        };
+        ws.onclose = () => setTimeout(connectStatusSocket, 1000);
+      }
+
+      refreshPatterns().catch(() => {});
+      refreshStatus();
+      connectStatusSocket();
+    </script>
+  </body>
+</html>

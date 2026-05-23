@@ -1,0 +1,6 @@
+string pattern_name
+string pattern_yaml
+---
+bool valid
+string[] errors
+string[] warnings

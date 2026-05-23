@@ -1,0 +1,7 @@
+/**:
+  ros__parameters:
+    mock_mode: true
+    pattern_dir: "patterns"
+    default_mode: "idle"
+    pattern_lock_ms: 1500
+    update_rate_hz: 30.0

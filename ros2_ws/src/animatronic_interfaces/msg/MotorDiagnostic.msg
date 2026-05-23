@@ -1,0 +1,11 @@
+uint8 id
+string joint_name
+string model
+int32 raw_position
+float32 angle_deg
+float32 voltage_v
+float32 temperature_c
+float32 load
+bool torque_enabled
+uint8 error_code
+string error_message

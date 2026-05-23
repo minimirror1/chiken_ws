@@ -1,0 +1,9 @@
+/**:
+  ros__parameters:
+    publish_frequency: 30.0
+    joint_names:
+      - lower_yaw
+      - lower_pitch
+      - upper_yaw
+      - upper_pitch
+    home_normalized_value: 0.0
