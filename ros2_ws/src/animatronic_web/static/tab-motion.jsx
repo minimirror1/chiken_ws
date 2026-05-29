@@ -251,6 +251,10 @@ function TabMotion() {
     if (t >= dur) setT(0);
     Store.set({ playing: true }); setPlaying(true);
   };
+  const confirmRunReal = () => {
+    if (!window.confirm('모터가 움직입니다. 정말 실행하시겠습니까?')) return;
+    runReal();
+  };
   const stop = () => { setPlaying(false); Store.set({ playing: false, mode: 'stop' }); };
 
   const updateSel = (patch) => {
@@ -404,9 +408,6 @@ function TabMotion() {
             </div>
             <Btn kind="ghost" size="sm" icon="plus" onClick={addPattern}>새 패턴</Btn>
             <div className="motion-control-grid">
-              <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
-              <Btn kind="solid" size="sm" icon="bolt" onClick={runReal}>실제 실행</Btn>
-              <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
               <Btn size="sm" icon="check" onClick={() => setVerifyRes(verifyPattern(p))}>검증</Btn>
               <Btn kind="cy" size="sm" icon="save" onClick={() => Store.pushLog('ok', 'studio', `패턴 '${p.name}' 저장됨`)}>저장</Btn>
             </div>
@@ -439,6 +440,12 @@ function TabMotion() {
 
         {/* KEYFRAMES */}
         <div className="col" style={{ minHeight: 0 }}>
+          <Panel title="실행" accent="RUN" bodyClass="keyframe-run">
+            <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
+            <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
+            <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal}>실제 실행</Btn>
+          </Panel>
+
           <Panel title="키프레임" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">
             <div className="scroll-y" style={{ height: '100%' }}>
               <div className="col gap8" style={{ padding: 10 }}>

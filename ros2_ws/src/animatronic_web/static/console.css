@@ -457,13 +457,14 @@ body {
 /* timeline */
 .motion-control .btn { width: 100%; justify-content: center; min-width: 0; }
 .motion-control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.motion-control-grid .btn:last-child { grid-column: 1 / -1; }
 .motion-control-meta {
   display: flex; justify-content: space-between; gap: 8px; min-width: 0;
   font-family: var(--mono); font-size: 10px; color: var(--tx-3);
 }
 .motion-control-meta span { min-width: 0; white-space: nowrap; }
 .motion-control-meta b { color: var(--cy); font-weight: 700; }
+.keyframe-run { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 6px; }
+.keyframe-run .btn { width: 100%; justify-content: center; min-width: 0; padding-left: 7px; padding-right: 7px; }
 .panel-b.capture-body { padding: 8px 6px; align-items: center; }
 .timeline-wrap { display: grid; grid-template-columns: 106px 1fr; gap: 8px; align-items: stretch; }
 .tl-timebox {
