@@ -594,6 +594,10 @@ function TabMotion() {
                     <b>캡처</b>
                     <em>{(t / 1000).toFixed(2)}s</em>
                   </button>
+                  <div className="tl-timebox capture-timebox">
+                    <span className="total">{fmtTimelineTime(dur)}</span>
+                    <span className="selected">{fmtTimelineTime(t)}</span>
+                  </div>
                 </Panel>
 
                 <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
@@ -614,10 +618,6 @@ function TabMotion() {
 
           <div className="motion-lower">
             <div className="timeline-wrap axis-mode">
-              <div className="tl-timebox">
-                <span className="total">{fmtTimelineTime(dur)}</span>
-                <span className="selected">{fmtTimelineTime(t)}</span>
-              </div>
               <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
                 onPointerEnter={() => setTimelineHover(true)}
                 onPointerLeave={() => setTimelineHover(false)}>
@@ -653,7 +653,7 @@ function TabMotion() {
                       </div>
                     </div>
                   ))}
-                  <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
+                  <div className="tl-playhead" style={{ left: `calc(114px + (100% - 114px) * ${t / viewDur})` }}></div>
                 </div>
               </div>
             </div>
