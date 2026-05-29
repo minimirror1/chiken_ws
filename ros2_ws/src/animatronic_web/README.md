@@ -18,6 +18,16 @@ cd /home/hifiberry/Desktop/shs_ws_chiken/ros2_ws
 
 Open `http://localhost:8080`.
 
+## Rebuild and run on 18080
+
+```bash
+cd /home/hifiberry/Desktop/shs_ws_chiken/ros2_ws/src/animatronic_web
+./scripts/rebuild_run_18080.sh
+```
+
+The script stops an existing listener on port `18080`, rebuilds `animatronic_web`,
+then starts the web server on `http://localhost:18080`.
+
 Optional parameters:
 
 ```bash
