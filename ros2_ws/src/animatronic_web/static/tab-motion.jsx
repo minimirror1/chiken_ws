@@ -276,9 +276,32 @@ function TabMotion() {
       </div>
 
       {/* BODY GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 290px', gap: 12, padding: 12, minHeight: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '240px 300px 1fr', gap: 12, padding: 12, minHeight: 0 }}>
 
-        {/* LEFT — timeline + keyframe list */}
+        {/* LEFT — pattern props + verify */}
+        <div className="col" style={{ minHeight: 0 }}>
+          <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
+            <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
+            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력…" onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
+            <div className="field"><label>기본 보간</label>
+              <select className="ninput" value={p.defaultInterp} onChange={e => Store.updatePattern(p.id, { defaultInterp: e.target.value })}>
+                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
+              </select>
+            </div>
+          </Panel>
+
+          <Panel title="검증 결과" accent="VERIFY" className="flex1" bodyClass="scroll-y">
+            {!verifyRes && <div style={{ color: 'var(--tx-3)', fontSize: 11, textAlign: 'center', padding: '14px 0' }}>「검증」을 눌러 속도·각도 안전성을 확인하세요.</div>}
+            {verifyRes && verifyRes.length === 0 && <div className="row center" style={{ gap: 8, color: 'var(--ok)', fontSize: 12 }}><Icon name="check" />문제 없음 — 안전 범위 내</div>}
+            {verifyRes && verifyRes.map((iss, i) => (
+              <div key={i} className={`logline ${iss.lv}`} style={{ borderRadius: 3, marginBottom: 4 }}>
+                <span className="lv">{LevelName(iss.lv)}</span><span className="msg">{iss.msg}</span>
+              </div>
+            ))}
+          </Panel>
+        </div>
+
+        {/* KEYFRAMES */}
         <div className="col" style={{ minHeight: 0 }}>
           <Panel title="키프레임" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">
             <div className="scroll-y" style={{ height: '100%' }}>
@@ -348,7 +371,6 @@ function TabMotion() {
                 <b>캡처</b>
                 <em>{(t / 1000).toFixed(2)}s</em>
               </button>
-              <span className="hint" style={{ fontSize: 10, color: 'var(--tx-3)' }}>3D에서 자세를 잡고 캡처하면 현재 재생 위치에 키프레임이 추가됩니다.</span>
             </Panel>
 
             <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
@@ -361,7 +383,6 @@ function TabMotion() {
                 <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
                   {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
                 </select>
-                <span className="hint">다음 키프레임으로 전환하는 방식</span>
               </div>
             </Panel>
 
@@ -374,28 +395,6 @@ function TabMotion() {
           </div>
         </div>
 
-        {/* RIGHT — pattern props + verify */}
-        <div className="col" style={{ minHeight: 0 }}>
-          <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
-            <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
-            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력…" onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
-            <div className="field"><label>기본 보간</label>
-              <select className="ninput" value={p.defaultInterp} onChange={e => Store.updatePattern(p.id, { defaultInterp: e.target.value })}>
-                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
-              </select>
-            </div>
-          </Panel>
-
-          <Panel title="검증 결과" accent="VERIFY" className="flex1" bodyClass="scroll-y">
-            {!verifyRes && <div style={{ color: 'var(--tx-3)', fontSize: 11, textAlign: 'center', padding: '14px 0' }}>「검증」을 눌러 속도·각도 안전성을 확인하세요.</div>}
-            {verifyRes && verifyRes.length === 0 && <div className="row center" style={{ gap: 8, color: 'var(--ok)', fontSize: 12 }}><Icon name="check" />문제 없음 — 안전 범위 내</div>}
-            {verifyRes && verifyRes.map((iss, i) => (
-              <div key={i} className={`logline ${iss.lv}`} style={{ borderRadius: 3, marginBottom: 4 }}>
-                <span className="lv">{LevelName(iss.lv)}</span><span className="msg">{iss.msg}</span>
-              </div>
-            ))}
-          </Panel>
-        </div>
       </div>
 
       {/* YAML drawer */}

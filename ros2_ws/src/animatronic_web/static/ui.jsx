@@ -118,7 +118,7 @@ function JointSlider({ jid, value, onChange, compact }) {
   const over = isOverSoft(jid, value);
   const pct = (value + 100) / 2; // 0..100 for gradient
   return (
-    <div className={`jslider ${over ? 'warnlimit' : ''}`} style={compact ? { gridTemplateColumns: '78px 1fr 62px', padding: '6px 2px' } : null}>
+    <div className={`jslider ${compact ? 'compact' : ''} ${over ? 'warnlimit' : ''}`}>
       <div className="lab">
         <span className="nm">{jid}</span>
         <span className="kr">{j.kr}</span>

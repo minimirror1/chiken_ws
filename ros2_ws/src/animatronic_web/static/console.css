@@ -263,8 +263,8 @@ body {
 .btn.cy { border-color: var(--cy-line); color: var(--cy); background: var(--cy-dim); }
 .btn.cy:hover { background: rgba(63,199,212,0.22); }
 .capture-btn {
-  width: 82px; aspect-ratio: 1 / 1; flex-direction: column; gap: 3px;
-  padding: 8px; justify-self: center; align-self: center; white-space: normal;
+  width: 72px; aspect-ratio: 1 / 1; flex-direction: column; gap: 3px;
+  padding: 7px; justify-self: center; align-self: center; white-space: normal;
   line-height: 1.15;
 }
 .capture-btn .ic { width: 16px; height: 16px; }
@@ -297,6 +297,7 @@ body {
    SLIDER  (joint control)
    ============================================================ */
 .jslider { display: grid; grid-template-columns: 92px 1fr 70px; align-items: center; gap: 12px; padding: 9px 2px; }
+.jslider.compact { grid-template-columns: 68px minmax(120px, 1fr) 116px; gap: 8px; padding: 3px 2px; }
 .jslider .lab { display: flex; flex-direction: column; gap: 2px; }
 .jslider .lab .nm { font-family: var(--mono); font-size: 11px; color: var(--tx-0); letter-spacing: .02em; }
 .jslider .lab .kr { font-size: 10px; color: var(--tx-2); }
@@ -318,6 +319,7 @@ body {
 /* center tick */
 .track-wrap .center-tick { position: absolute; left: 50%; top: 3px; bottom: 3px; width: 1px; background: var(--line-2); pointer-events: none; }
 .jslider .val { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.jslider.compact .val { min-width: 116px; }
 .jslider .val input {
   width: 64px; text-align: right; font-family: var(--mono); font-size: 12px;
   background: var(--bg-2); border: 1px solid var(--line-1); color: var(--tx-0);
@@ -325,6 +327,7 @@ body {
 }
 .jslider .val input:focus { border-color: var(--cy-line); }
 .jslider .val .raw { font-family: var(--mono); font-size: 9.5px; color: var(--tx-3); }
+.jslider.compact .val .raw { white-space: nowrap; }
 .jslider.warnlimit .jrange { background-image: linear-gradient(var(--warn), var(--warn)); }
 .jslider.warnlimit .val input { color: var(--warn); border-color: rgba(227,171,70,.4); }
 
