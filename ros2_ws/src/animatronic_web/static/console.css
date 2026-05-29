@@ -263,7 +263,7 @@ body {
 .btn.cy { border-color: var(--cy-line); color: var(--cy); background: var(--cy-dim); }
 .btn.cy:hover { background: rgba(63,199,212,0.22); }
 .capture-btn {
-  width: 106px; min-height: 72px; flex-direction: column; gap: 3px;
+  width: 100%; min-height: 72px; flex-direction: column; gap: 3px;
   padding: 7px; justify-self: center; align-self: center; white-space: normal;
   line-height: 1.15;
 }
@@ -455,6 +455,15 @@ body {
 .tgl.on .lab { color: var(--tx-0); }
 
 /* timeline */
+.motion-control .btn { width: 100%; justify-content: center; min-width: 0; }
+.motion-control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.motion-control-grid .btn:last-child { grid-column: 1 / -1; }
+.motion-control-meta {
+  display: flex; justify-content: space-between; gap: 8px; min-width: 0;
+  font-family: var(--mono); font-size: 10px; color: var(--tx-3);
+}
+.motion-control-meta span { min-width: 0; white-space: nowrap; }
+.motion-control-meta b { color: var(--cy); font-weight: 700; }
 .panel-b.capture-body { padding: 8px 6px; align-items: center; }
 .timeline-wrap { display: grid; grid-template-columns: 106px 1fr; gap: 8px; align-items: stretch; }
 .tl-timebox {
@@ -499,6 +508,36 @@ body {
 .tl-key.dragging { cursor: grabbing; z-index: 4; box-shadow: 0 0 14px var(--cy-glow); }
 .tl-playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--cy); box-shadow: 0 0 6px var(--cy-glow); pointer-events: none; z-index: 3; }
 .tl-playhead::before { content: ""; position: absolute; top: -1px; left: -4px; border: 4px solid transparent; border-top-color: var(--cy); }
+.graph-wrap { display: grid; grid-template-columns: 106px 1fr; gap: 8px; align-items: stretch; min-height: 150px; }
+.graph-tools {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 7px;
+  border: 1px solid var(--line-1); border-radius: var(--r); background: var(--bg-1);
+}
+.graph-lock {
+  border: 1px solid var(--line-1); border-radius: 3px; background: var(--bg-2); color: var(--tx-2);
+  font-family: var(--kr); font-size: 10.5px; padding: 6px 4px; cursor: pointer; white-space: nowrap;
+}
+.graph-lock:hover { border-color: var(--line-2); color: var(--tx-0); }
+.graph-lock.on { border-color: var(--cy-line); background: var(--cy-dim); color: var(--cy); }
+.graph-legend { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
+.graph-legend span { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; color: var(--tx-2); white-space: nowrap; }
+.graph-legend i { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 6px currentColor; }
+.motion-graph { min-width: 0; height: 150px; border: 1px solid var(--line-1); border-radius: var(--r); overflow: hidden; background: var(--bg-2); }
+.motion-graph svg { display: block; width: 100%; height: 100%; touch-action: none; }
+.graph-bg { fill: var(--bg-2); }
+.graph-tick { stroke: rgba(110,130,145,.22); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.graph-snap { stroke: rgba(110,130,145,.10); stroke-width: 1; opacity: 0; vector-effect: non-scaling-stroke; }
+.graph-snap.major { stroke: rgba(0,209,255,.18); }
+.motion-graph.show-snap .graph-snap { opacity: 1; }
+.graph-time { fill: var(--tx-3); font-family: var(--mono); font-size: 9px; }
+.graph-limit { stroke: rgba(110,130,145,.20); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.graph-zero { stroke: rgba(255,255,255,.24); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.graph-curve { fill: none; stroke-width: 2; opacity: .84; vector-effect: non-scaling-stroke; }
+.graph-point { stroke: var(--bg-0); stroke-width: 1.5; cursor: grab; vector-effect: non-scaling-stroke; }
+.graph-point:hover { stroke: #fff; stroke-width: 2; }
+.graph-point.sel { stroke: #fff; filter: drop-shadow(0 0 4px rgba(0,209,255,.75)); }
+.graph-point:active { cursor: grabbing; }
+.graph-playhead { stroke: var(--cy); stroke-width: 1.5; filter: drop-shadow(0 0 3px var(--cy)); pointer-events: none; vector-effect: non-scaling-stroke; }
 
 /* keyframe list */
 .kf-item { display: grid; grid-template-columns: 24px 1fr auto; gap: 9px; align-items: center; padding: 8px 10px; border: 1px solid var(--line-1); border-radius: var(--r); background: var(--bg-2); cursor: pointer; transition: all .1s; }

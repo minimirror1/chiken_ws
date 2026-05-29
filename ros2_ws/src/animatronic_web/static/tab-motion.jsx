@@ -65,6 +65,126 @@ function patternToYaml(p) {
   return y;
 }
 
+const GRAPH_COLORS = {
+  lower_yaw: '#00d1ff',
+  lower_pitch: '#8fd14f',
+  upper_yaw: '#ffb347',
+  upper_pitch: '#ff6b9a',
+};
+
+function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGrid, resolveTimeSlot, onSelect, onEditKey }) {
+  const [lockTime, setLockTime] = React.useState(false);
+  const [lockValue, setLockValue] = React.useState(false);
+  const [hover, setHover] = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
+  const graphRef = React.useRef();
+  const dragRef = React.useRef();
+  const W = 1000, H = 150, PAD = 14;
+  const innerH = H - PAD * 2;
+  const sampleCount = Math.max(24, Math.min(180, Math.ceil(viewDur / 40)));
+
+  const xFromTime = tm => (tm / viewDur) * W;
+  const yFromValue = v => PAD + ((100 - Math.max(-100, Math.min(100, v))) / 200) * innerH;
+  const valueFromY = y => Math.max(-100, Math.min(100, 100 - ((y - PAD) / innerH) * 200));
+  const pointFromEvent = e => {
+    const r = graphRef.current.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(W, ((e.clientX - r.left) / Math.max(1, r.width)) * W)),
+      y: Math.max(0, Math.min(H, ((e.clientY - r.top) / Math.max(1, r.height)) * H)),
+    };
+  };
+  const curvePath = jid => {
+    let d = '';
+    for (let i = 0; i <= sampleCount; i++) {
+      const tm = (viewDur * i) / sampleCount;
+      const pose = poseAtTime(p.keyframes, tm);
+      const x = xFromTime(tm);
+      const y = yFromValue(pose[jid] || 0);
+      d += `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)} `;
+    }
+    return d;
+  };
+  const startDrag = (e, k, jid) => {
+    e.stopPropagation();
+    onSelect(k);
+    if (lockTime && lockValue) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      id: k.id,
+      jid,
+      pointerId: e.pointerId,
+      time_ms: k.time_ms,
+      value: k.joints[jid],
+      duration: Math.max(viewDur, k.time_ms, 1),
+    };
+    setDragging(true);
+  };
+  const moveDrag = e => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const k = p.keyframes.find(x => x.id === drag.id);
+    if (!k) return;
+    const pt = pointFromEvent(e);
+    const rawTime = (pt.x / W) * drag.duration;
+    const time_ms = lockTime ? drag.time_ms : resolveTimeSlot(drag.id, rawTime, drag.duration);
+    const value = lockValue ? drag.value : Math.round(valueFromY(pt.y) * 10) / 10;
+    onEditKey(k, drag.jid, time_ms, value);
+  };
+  const endDrag = e => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  return (
+    <div className="graph-wrap">
+      <div className="graph-tools">
+        <button className={`graph-lock ${lockTime ? 'on' : ''}`} onClick={() => setLockTime(v => !v)}>시간축 잠금</button>
+        <button className={`graph-lock ${lockValue ? 'on' : ''}`} onClick={() => setLockValue(v => !v)}>모션축 잠금</button>
+        <div className="graph-legend">
+          {JOINTS.map(j => (
+            <span key={j.id}><i style={{ background: GRAPH_COLORS[j.id] }}></i>{j.kr}</span>
+          ))}
+        </div>
+      </div>
+      <div className={`motion-graph ${showSnapGrid || hover || dragging ? 'show-snap' : ''}`} onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+        <svg ref={graphRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          <rect className="graph-bg" x="0" y="0" width={W} height={H} />
+          {snapTicks.map(tm => (
+            <line key={tm} className={`graph-snap ${tm % 500 === 0 ? 'major' : ''}`} x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
+          ))}
+          {ticks.map(tm => (
+            <g key={tm}>
+              <line className="graph-tick" x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
+              <text className="graph-time" x={xFromTime(tm) + 5} y="12">{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</text>
+            </g>
+          ))}
+          <line className="graph-limit" x1="0" x2={W} y1={yFromValue(100)} y2={yFromValue(100)} />
+          <line className="graph-zero" x1="0" x2={W} y1={yFromValue(0)} y2={yFromValue(0)} />
+          <line className="graph-limit" x1="0" x2={W} y1={yFromValue(-100)} y2={yFromValue(-100)} />
+          {JOINT_IDS.map(jid => (
+            <path key={jid} className="graph-curve" d={curvePath(jid)} style={{ stroke: GRAPH_COLORS[jid] }} />
+          ))}
+          {p.keyframes.map(k => JOINT_IDS.map(jid => (
+            <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
+              style={{ fill: GRAPH_COLORS[jid] }}
+              onPointerDown={e => startDrag(e, k, jid)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}>
+              <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.joints[jid])}`}</title>
+            </circle>
+          )))}
+          <line className="graph-playhead" x1={xFromTime(t)} x2={xFromTime(t)} y1="0" y2={H} />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 function TabMotion() {
   const s = useStore();
   const p = Store.getPattern(s.editingPatternId) || s.patterns[0];
@@ -140,6 +260,16 @@ function TabMotion() {
   const updateKfTime = (id, time_ms) => {
     const kfs = p.keyframes.map(k => k.id === id ? { ...k, time_ms } : k).sort((a, b) => a.time_ms - b.time_ms);
     Store.updatePattern(p.id, { keyframes: kfs });
+  };
+  const updateGraphKey = (k, jid, time_ms, value) => {
+    if (playing) { setPlaying(false); Store.set({ playing: false }); }
+    const joints = { ...k.joints, [jid]: value };
+    const kfs = p.keyframes.map(x => x.id === k.id ? { ...x, time_ms, joints } : x).sort((a, b) => a.time_ms - b.time_ms);
+    Store.updatePattern(p.id, { keyframes: kfs });
+    setSelId(k.id);
+    setT(time_ms);
+    Store.state.joints = { ...joints };
+    Store.emit();
   };
   const resolveTimeSlot = (id, rawTime, span) => {
     const step = 50;
@@ -259,35 +389,33 @@ function TabMotion() {
   const showSnapGrid = timelineHover || poseClipboard || draggingKfId;
 
   return (
-    <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
-
-      {/* TOP TOOLBAR */}
-      <div className="row center" style={{ gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--line-1)', background: 'var(--bg-1)', flexWrap: 'wrap' }}>
-        <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <label style={{ margin: 0 }}>패턴</label>
-          <select className="ninput" style={{ width: 200 }} value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); setSelId(np.keyframes[0]?.id); setT(0); setPoseClipboard(null); }}>
-            {s.patterns.map(pp => <option key={pp.id} value={pp.id}>{pp.name}</option>)}
-          </select>
-        </div>
-        <Btn kind="ghost" size="sm" icon="plus" onClick={addPattern}>새 패턴</Btn>
-        <div className="vdiv"></div>
-        <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
-        <Btn kind="solid" size="sm" icon="bolt" onClick={runReal}>실제 실행</Btn>
-        <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
-        <div className="vdiv"></div>
-        <Btn size="sm" icon="check" onClick={() => setVerifyRes(verifyPattern(p))}>검증</Btn>
-        <Btn kind="cy" size="sm" icon="save" onClick={() => Store.pushLog('ok', 'studio', `패턴 '${p.name}' 저장됨`)}>저장</Btn>
-        <div className="row center" style={{ marginLeft: 'auto', gap: 14, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--tx-2)' }}>
-          <span>t <b style={{ color: 'var(--cy)' }}>{(t / 1000).toFixed(2)}s</b> / {(dur / 1000).toFixed(2)}s</span>
-          <span>{p.keyframes.length} keyframes</span>
-        </div>
-      </div>
-
+    <div style={{ height: '100%', display: 'grid', gridTemplateRows: '1fr', minHeight: 0 }}>
       {/* BODY GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: '240px 300px 1fr', gap: 12, padding: 12, minHeight: 0 }}>
 
         {/* LEFT — pattern props + verify */}
         <div className="col" style={{ minHeight: 0 }}>
+          <Panel title="모션 제어" accent="CONTROL" bodyClass="col motion-control" style={{ gap: 10 }}>
+            <div className="field">
+              <label>패턴</label>
+              <select className="ninput" value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); setSelId(np.keyframes[0]?.id); setT(0); setPoseClipboard(null); }}>
+                {s.patterns.map(pp => <option key={pp.id} value={pp.id}>{pp.name}</option>)}
+              </select>
+            </div>
+            <Btn kind="ghost" size="sm" icon="plus" onClick={addPattern}>새 패턴</Btn>
+            <div className="motion-control-grid">
+              <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
+              <Btn kind="solid" size="sm" icon="bolt" onClick={runReal}>실제 실행</Btn>
+              <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
+              <Btn size="sm" icon="check" onClick={() => setVerifyRes(verifyPattern(p))}>검증</Btn>
+              <Btn kind="cy" size="sm" icon="save" onClick={() => Store.pushLog('ok', 'studio', `패턴 '${p.name}' 저장됨`)}>저장</Btn>
+            </div>
+            <div className="motion-control-meta">
+              <span>t <b>{(t / 1000).toFixed(2)}s</b> / {(dur / 1000).toFixed(2)}s</span>
+              <span>{p.keyframes.length} keyframes</span>
+            </div>
+          </Panel>
+
           <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
             <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
             <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력…" onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
@@ -347,7 +475,7 @@ function TabMotion() {
                 </div>
               </Panel>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '106px 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '3fr 7fr', gap: 12 }}>
                 <Panel title="캡처" accent="CAPTURE" bodyClass="capture-body col gap8">
                   <button className="btn cy capture-btn" onClick={captureHere}>
                     <Icon name="capture" />
@@ -411,6 +539,8 @@ function TabMotion() {
               </div>
             </div>
           </div>
+          <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selId={selId} showSnapGrid={showSnapGrid}
+            resolveTimeSlot={resolveTimeSlot} onSelect={selectKf} onEditKey={updateGraphKey} />
         </div>
 
       </div>
