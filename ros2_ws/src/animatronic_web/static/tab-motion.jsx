@@ -62,8 +62,12 @@ function TabMotion() {
   const [playing, setPlaying] = React.useState(false);
   const [showYaml, setShowYaml] = React.useState(false);
   const [verifyRes, setVerifyRes] = React.useState(null);
+  const [draggingKfId, setDraggingKfId] = React.useState(null);
   const rafRef = React.useRef();
   const playRef = React.useRef();
+  const trackRef = React.useRef();
+  const dragRef = React.useRef();
+  const suppressClickRef = React.useRef(false);
 
   const sel = p.keyframes.find(k => k.id === selId) || p.keyframes[0];
 
@@ -108,6 +112,65 @@ function TabMotion() {
     const kfs = p.keyframes.map(k => k.id === sel.id ? { ...k, ...patch } : k).sort((a, b) => a.time_ms - b.time_ms);
     Store.updatePattern(p.id, { keyframes: kfs });
   };
+  const updateKfTime = (id, time_ms) => {
+    const kfs = p.keyframes.map(k => k.id === id ? { ...k, time_ms } : k).sort((a, b) => a.time_ms - b.time_ms);
+    Store.updatePattern(p.id, { keyframes: kfs });
+  };
+  const resolveDragTime = (id, rawTime, span) => {
+    const step = 50;
+    const minGap = 30;
+    const max = Math.max(0, Math.round(span));
+    const base = Math.max(0, Math.min(max, Math.round(rawTime / step) * step));
+    const used = p.keyframes.filter(k => k.id !== id).map(k => k.time_ms);
+    const ok = t0 => !used.some(t1 => Math.abs(t1 - t0) < minGap);
+    if (ok(base)) return base;
+    for (let offset = step; offset <= max + step; offset += step) {
+      const left = base - offset;
+      const right = base + offset;
+      if (left >= 0 && ok(left)) return left;
+      if (right <= max && ok(right)) return right;
+    }
+    return base;
+  };
+  const dragTimeFromPointer = (e) => {
+    const drag = dragRef.current;
+    const track = trackRef.current;
+    if (!drag || !track) return 0;
+    const r = track.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    return resolveDragTime(drag.id, (x / Math.max(1, r.width)) * drag.duration, drag.duration);
+  };
+  const startKfDrag = (e, k) => {
+    e.stopPropagation();
+    if (playing) { setPlaying(false); Store.set({ playing: false }); }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { id: k.id, pointerId: e.pointerId, duration: Math.max(dur, k.time_ms, 1) };
+    suppressClickRef.current = false;
+    setDraggingKfId(k.id);
+    setSelId(k.id);
+    setT(k.time_ms);
+    Store.state.joints = { ...k.joints }; Store.emit();
+  };
+  const moveKfDrag = (e, k) => {
+    const drag = dragRef.current;
+    if (!drag || drag.id !== k.id || drag.pointerId !== e.pointerId) return;
+    e.preventDefault();
+    const nt = dragTimeFromPointer(e);
+    if (nt === k.time_ms) return;
+    suppressClickRef.current = true;
+    updateKfTime(k.id, nt);
+    setSelId(k.id);
+    setT(nt);
+    Store.state.joints = { ...k.joints }; Store.emit();
+  };
+  const endKfDrag = (e, k) => {
+    const drag = dragRef.current;
+    if (!drag || drag.id !== k.id || drag.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+    setDraggingKfId(null);
+  };
   const setSelJoint = (jid, v) => {
     v = Math.max(-100, Math.min(100, v));
     const joints = { ...sel.joints, [jid]: v };
@@ -135,9 +198,10 @@ function TabMotion() {
     setSelId('k0'); setT(0);
   };
 
+  const viewDur = Math.max(dur, draggingKfId && dragRef.current ? dragRef.current.duration : 0, 1);
   const ticks = [];
-  const tickStep = dur > 4000 ? 1000 : 500;
-  for (let tm = 0; tm <= dur; tm += tickStep) ticks.push(tm);
+  const tickStep = viewDur > 4000 ? 1000 : 500;
+  for (let tm = 0; tm <= viewDur; tm += tickStep) ticks.push(tm);
 
   return (
     <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
@@ -199,17 +263,21 @@ function TabMotion() {
 
           {/* timeline */}
           <div className="timeline">
-            <div className="tl-ruler" onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * dur)); }}>
+            <div className="tl-ruler" onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * viewDur)); }}>
               {ticks.map(tm => (
-                <div key={tm} className="tl-tick" style={{ left: (tm / dur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
+                <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
               ))}
             </div>
-            <div className="tl-track" onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * dur)); }}>
+            <div className="tl-track" ref={trackRef} onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * viewDur)); }}>
               {p.keyframes.map(k => (
-                <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''}`} style={{ left: (k.time_ms / dur) * 100 + '%' }}
-                  onClick={e => { e.stopPropagation(); selectKf(k); }} title={k.time_ms + 'ms'}></div>
+                <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
+                  onPointerDown={e => startKfDrag(e, k)}
+                  onPointerMove={e => moveKfDrag(e, k)}
+                  onPointerUp={e => endKfDrag(e, k)}
+                  onPointerCancel={e => endKfDrag(e, k)}
+                  onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
               ))}
-              <div className="tl-playhead" style={{ left: (t / dur) * 100 + '%' }}></div>
+              <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
             </div>
           </div>
 
