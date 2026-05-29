@@ -77,11 +77,26 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
   const [lockValue, setLockValue] = React.useState(false);
   const [hover, setHover] = React.useState(false);
   const [dragging, setDragging] = React.useState(false);
+  const [graphSize, setGraphSize] = React.useState({ w: 1000, h: 150 });
   const graphRef = React.useRef();
   const dragRef = React.useRef();
-  const W = 1000, H = 150, PAD = 14;
-  const innerH = H - PAD * 2;
+  const W = graphSize.w, H = graphSize.h, PAD = 14;
+  const innerH = Math.max(1, H - PAD * 2);
   const sampleCount = Math.max(24, Math.min(180, Math.ceil(viewDur / 40)));
+
+  React.useEffect(() => {
+    const el = graphRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const updateSize = () => {
+      const w = Math.max(1, Math.round(el.clientWidth || 1000));
+      const h = Math.max(1, Math.round(el.clientHeight || 150));
+      setGraphSize(prev => prev.w === w && prev.h === h ? prev : { w, h });
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const xFromTime = tm => (tm / viewDur) * W;
   const yFromValue = v => PAD + ((100 - Math.max(-100, Math.min(100, v))) / 200) * innerH;
@@ -165,8 +180,8 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
             </button>
           ))}
         </div>
-        <div className={`motion-graph ${showSnapGrid || hover || dragging ? 'show-snap' : ''}`} onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
-          <svg ref={graphRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        <div ref={graphRef} className={`motion-graph ${showSnapGrid || hover || dragging ? 'show-snap' : ''}`} onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+          <svg viewBox={`0 0 ${W} ${H}`}>
             <rect className="graph-bg" x="0" y="0" width={W} height={H} />
             {snapTicks.map(tm => (
               <line key={tm} className={`graph-snap ${tm % 500 === 0 ? 'major' : ''}`} x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
