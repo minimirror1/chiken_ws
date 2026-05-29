@@ -263,7 +263,7 @@ body {
 .btn.cy { border-color: var(--cy-line); color: var(--cy); background: var(--cy-dim); }
 .btn.cy:hover { background: rgba(63,199,212,0.22); }
 .capture-btn {
-  width: 72px; aspect-ratio: 1 / 1; flex-direction: column; gap: 3px;
+  width: 106px; min-height: 72px; flex-direction: column; gap: 3px;
   padding: 7px; justify-self: center; align-self: center; white-space: normal;
   line-height: 1.15;
 }
@@ -455,6 +455,15 @@ body {
 .tgl.on .lab { color: var(--tx-0); }
 
 /* timeline */
+.panel-b.capture-body { padding: 8px 6px; align-items: center; }
+.timeline-wrap { display: grid; grid-template-columns: 106px 1fr; gap: 8px; align-items: stretch; }
+.tl-timebox {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  min-width: 0; padding: 8px 9px; border: 1px solid var(--line-1); border-radius: var(--r);
+  background: var(--bg-1); font-family: var(--mono); line-height: 1;
+}
+.tl-timebox .total { color: var(--cy); font-size: 16px; font-weight: 700; text-shadow: 0 0 8px var(--cy-glow); }
+.tl-timebox .selected { color: var(--tx-2); font-size: 13px; font-weight: 500; }
 .timeline { position: relative; background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r); overflow: hidden; }
 .timeline.paste-mode { border-color: var(--cy-line); box-shadow: inset 0 0 0 1px var(--cy-dim); cursor: copy; }
 .timeline.paste-mode .tl-ruler,

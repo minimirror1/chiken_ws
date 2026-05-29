@@ -7,6 +7,14 @@ function fmtJointValue(v) {
   return Number(v).toFixed(1);
 }
 
+function fmtTimelineTime(ms) {
+  const safe = Math.max(0, Math.round(ms || 0));
+  const minutes = Math.floor(safe / 60000);
+  const seconds = Math.floor((safe % 60000) / 1000);
+  const millis = safe % 1000;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(millis).padStart(3, '0')}`;
+}
+
 function poseAtTime(kfs, t) {
   if (!kfs.length) return { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 };
   if (t <= kfs[0].time_ms) return { ...kfs[0].joints };
@@ -331,40 +339,46 @@ function TabMotion() {
           </Panel>
 
           {/* timeline */}
-          <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
-            onPointerEnter={() => setTimelineHover(true)}
-            onPointerLeave={() => setTimelineHover(false)}>
-            {poseClipboard && (
-              <div className="tl-paste-overlay">
-                <span>붙여넣을 시간 위치를 클릭하세요</span>
-                <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
-              </div>
-            )}
-            <div className="tl-ruler" onClick={handleTimelineClick}>
-              {ticks.map(tm => (
-                <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
-              ))}
+          <div className="timeline-wrap">
+            <div className="tl-timebox">
+              <span className="total">{fmtTimelineTime(dur)}</span>
+              <span className="selected">{fmtTimelineTime(t)}</span>
             </div>
-            <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
-              <div className="tl-snap-grid">
-                {snapTicks.map(tm => (
-                  <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+            <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
+              onPointerEnter={() => setTimelineHover(true)}
+              onPointerLeave={() => setTimelineHover(false)}>
+              {poseClipboard && (
+                <div className="tl-paste-overlay">
+                  <span>붙여넣을 시간 위치를 클릭하세요</span>
+                  <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
+                </div>
+              )}
+              <div className="tl-ruler" onClick={handleTimelineClick}>
+                {ticks.map(tm => (
+                  <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
                 ))}
               </div>
-              {p.keyframes.map(k => (
-                <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
-                  onPointerDown={e => startKfDrag(e, k)}
-                  onPointerMove={e => moveKfDrag(e, k)}
-                  onPointerUp={e => endKfDrag(e, k)}
-                  onPointerCancel={e => endKfDrag(e, k)}
-                  onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
-              ))}
-              <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
+              <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
+                <div className="tl-snap-grid">
+                  {snapTicks.map(tm => (
+                    <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+                  ))}
+                </div>
+                {p.keyframes.map(k => (
+                  <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
+                    onPointerDown={e => startKfDrag(e, k)}
+                    onPointerMove={e => moveKfDrag(e, k)}
+                    onPointerUp={e => endKfDrag(e, k)}
+                    onPointerCancel={e => endKfDrag(e, k)}
+                    onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
+                ))}
+                <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
+              </div>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '118px minmax(190px, 220px) 1fr', gap: 12 }}>
-            <Panel title="캡처" accent="CAPTURE" bodyClass="col gap8">
+            <Panel title="캡처" accent="CAPTURE" bodyClass="capture-body col gap8">
               <button className="btn cy capture-btn" onClick={captureHere}>
                 <Icon name="capture" />
                 <span>현재 자세</span>
