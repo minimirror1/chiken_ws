@@ -332,11 +332,46 @@ function TabMotion() {
           </Panel>
         </div>
 
-        {/* CENTER — 3D + sliders + timeline ruler */}
+        {/* CENTER — 3D + edit stack + timeline ruler */}
         <div className="col" style={{ minHeight: 0 }}>
-          <Panel title="3D 뷰어" accent="STUDIO" ticked className="flex1" bodyClass="pad-0" sub="선택 키프레임 자세 표시">
-            <ViewerFrame interactive warnLimits label={playing ? 'PREVIEW ▶' : `KF ${p.keyframes.indexOf(sel) + 1}`} />
-          </Panel>
+          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 12, minHeight: 0, flex: 1 }}>
+            <Panel title="3D 뷰어" accent="STUDIO" ticked className="flex1" bodyClass="pad-0" sub="선택 키프레임 자세 표시">
+              <ViewerFrame interactive warnLimits label={playing ? 'PREVIEW ▶' : `KF ${p.keyframes.indexOf(sel) + 1}`} />
+            </Panel>
+
+            <div className="col" style={{ minHeight: 0 }}>
+              {/* joint sliders for selected kf */}
+              <Panel title={`키프레임 ${p.keyframes.indexOf(sel) + 1} 관절값`} accent="EDIT" className="flex1" bodyClass="col" style={{ gap: 0 }}>
+                <div className="col" style={{ gap: 0 }}>
+                  {JOINT_IDS.map(id => <JointSlider key={id} jid={id} value={sel.joints[id]} onChange={setSelJoint} compact />)}
+                </div>
+              </Panel>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '106px 1fr', gap: 12 }}>
+                <Panel title="캡처" accent="CAPTURE" bodyClass="capture-body col gap8">
+                  <button className="btn cy capture-btn" onClick={captureHere}>
+                    <Icon name="capture" />
+                    <span>현재 자세</span>
+                    <b>캡처</b>
+                    <em>{(t / 1000).toFixed(2)}s</em>
+                  </button>
+                </Panel>
+
+                <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
+                  <div className="field">
+                    <label>시간 TIME_MS</label>
+                    <input className="ninput tnum" type="number" min="0" step="50" value={sel.time_ms} onChange={e => updateSel({ time_ms: parseInt(e.target.value || '0') })} />
+                  </div>
+                  <div className="field">
+                    <label>보간 방식 INTERP</label>
+                    <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
+                      {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
+                    </select>
+                  </div>
+                </Panel>
+              </div>
+            </div>
+          </div>
 
           {/* timeline */}
           <div className="timeline-wrap">
@@ -375,37 +410,6 @@ function TabMotion() {
                 <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
               </div>
             </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '118px minmax(190px, 220px) 1fr', gap: 12 }}>
-            <Panel title="캡처" accent="CAPTURE" bodyClass="capture-body col gap8">
-              <button className="btn cy capture-btn" onClick={captureHere}>
-                <Icon name="capture" />
-                <span>현재 자세</span>
-                <b>캡처</b>
-                <em>{(t / 1000).toFixed(2)}s</em>
-              </button>
-            </Panel>
-
-            <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
-              <div className="field">
-                <label>시간 TIME_MS</label>
-                <input className="ninput tnum" type="number" min="0" step="50" value={sel.time_ms} onChange={e => updateSel({ time_ms: parseInt(e.target.value || '0') })} />
-              </div>
-              <div className="field">
-                <label>보간 방식 INTERP</label>
-                <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
-                  {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
-                </select>
-              </div>
-            </Panel>
-
-            {/* joint sliders for selected kf */}
-            <Panel title={`키프레임 ${p.keyframes.indexOf(sel) + 1} 관절값`} accent="EDIT" bodyClass="col" style={{ gap: 0 }}>
-              <div className="col" style={{ gap: 0 }}>
-                {JOINT_IDS.map(id => <JointSlider key={id} jid={id} value={sel.joints[id]} onChange={setSelJoint} compact />)}
-              </div>
-            </Panel>
           </div>
         </div>
 
