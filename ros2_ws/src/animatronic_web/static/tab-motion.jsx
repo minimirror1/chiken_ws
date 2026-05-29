@@ -157,7 +157,7 @@ const GRAPH_COLORS = {
   upper_pitch: '#ff6b9a',
 };
 
-function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, onSelectTime, onEditKey, onEditTangent, onPreset }) {
+function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, breakActive, onSelectTime, onEditKey, onEditTangent, onPreset }) {
   const [lockTime, setLockTime] = React.useState(false);
   const [lockValue, setLockValue] = React.useState(false);
   const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
@@ -272,13 +272,13 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
     setDragging(false);
   };
   const toolDefs = [
-    { icon: 'lockTime', title: '시간축 잠금', active: lockTime, onClick: () => setLockTime(v => !v) },
-    { icon: 'lockValue', title: '모션축 잠금', active: lockValue, onClick: () => setLockValue(v => !v) },
-    { icon: 'tangent', title: 'Auto tangent', onClick: () => onPreset('auto') },
-    { icon: 'flat', title: 'Flat tangent', onClick: () => onPreset('flat') },
-    { icon: 'frame', title: 'Linear tangent', onClick: () => onPreset('linear') },
-    { icon: 'step', title: 'Stepped tangent', onClick: () => onPreset('step') },
-    { icon: 'key', title: 'Break tangent', onClick: () => onPreset('break') },
+    { icon: 'lockTime', title: 'Lock Time Axis - prevent handle/key movement in time.', active: lockTime, onClick: () => setLockTime(v => !v) },
+    { icon: 'lockValue', title: 'Lock Value Axis - prevent handle/key movement in value.', active: lockValue, onClick: () => setLockValue(v => !v) },
+    { icon: 'tangent', title: 'Auto Tangent - smooth slopes from neighboring keys.', onClick: () => onPreset('auto') },
+    { icon: 'flat', title: 'Flat Tangent - set incoming and outgoing slopes to zero.', onClick: () => onPreset('flat') },
+    { icon: 'frame', title: 'Linear Tangent - match the straight line between keys.', onClick: () => onPreset('linear') },
+    { icon: 'step', title: 'Stepped Tangent - hold value until the next key.', onClick: () => onPreset('step') },
+    { icon: 'key', title: 'Break Tangents - toggle independent in/out handle editing.', active: breakActive, onClick: () => onPreset('break') },
   ];
 
   return (
@@ -783,7 +783,7 @@ function TabMotion() {
               </div>
             </div>
             <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selTime={selTime} showSnapGrid={showSnapGrid}
-              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} onSelectTime={selectTime} onEditKey={updateGraphKey}
+              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} breakActive={!!selSlot && targetAxes.some(id => selSlot.keys[id]?.tangent?.broken)} onSelectTime={selectTime} onEditKey={updateGraphKey}
               onEditTangent={updateTangent} onPreset={applyTangentPreset} />
           </div>
         </div>
