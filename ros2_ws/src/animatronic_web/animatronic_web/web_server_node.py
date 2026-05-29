@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import threading
 from collections import deque
 from pathlib import Path
@@ -55,6 +56,10 @@ class PatternDocument(BaseModel):
     content: str
 
 
+class JointPositions(BaseModel):
+    positions: dict[str, float]  # joint_name -> degrees
+
+
 def ros_message_to_dict(message: Any) -> Any:
     if message is None:
         return None
@@ -100,6 +105,7 @@ class WebBridgeNode(Node):
 
         self.mode_pub = self.create_publisher(Mode, self.topic("mode"), 10)
         self.torque_pub = self.create_publisher(Bool, self.topic("motor/torque_enable"), 10)
+        self.joint_cmd_pub = self.create_publisher(JointState, self.topic("joint_cmd"), 10)
         self.motor_home_client = self.create_client(Trigger, self.topic("motor/home"))
         self.motor_stop_client = self.create_client(Trigger, self.topic("motor/stop"))
         self.motion_stop_client = self.create_client(Trigger, self.topic("motion/stop"))
@@ -168,6 +174,15 @@ class WebBridgeNode(Node):
         self.torque_pub.publish(msg)
         self.log_event("web", "torque", f"Published torque {'enabled' if enabled else 'disabled'}")
         return {"success": True, "enabled": enabled}
+
+    def publish_joint_positions(self, positions: dict[str, float]) -> dict[str, Any]:
+        msg = JointState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.name = list(positions.keys())
+        msg.position = [math.radians(v) for v in positions.values()]
+        self.joint_cmd_pub.publish(msg)
+        self.log_event("web", "joints", f"Joint cmd: {positions}")
+        return {"success": True, "positions": positions}
 
     async def call_trigger(self, client: Any, name: str) -> dict[str, Any]:
         if not client.service_is_ready():
@@ -246,6 +261,10 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     @app.post("/api/torque", dependencies=[Depends(require_password)])
     async def torque(request: TorqueRequest) -> dict[str, Any]:
         return node.publish_torque(request.enabled)
+
+    @app.post("/api/joints", dependencies=[Depends(require_password)])
+    async def set_joints(request: JointPositions) -> dict[str, Any]:
+        return node.publish_joint_positions(request.positions)
 
     @app.get("/api/patterns", dependencies=[Depends(require_password)])
     async def list_patterns() -> dict[str, Any]:
