@@ -1,8 +1,7 @@
 /* ============================================================
-   tab-motion.jsx — 모션 제작 스튜디오 (타임라인+3D+캡처)
+   tab-motion.jsx - 모션 제작 스튜디오 (축별 트랙 키프레임)
    ============================================================ */
 
-// interpolate a pose at time t across keyframes
 function fmtJointValue(v) {
   return Number(v).toFixed(1);
 }
@@ -15,38 +14,75 @@ function fmtTimelineTime(ms) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(millis).padStart(3, '0')}`;
 }
 
-function poseAtTime(kfs, t) {
-  if (!kfs.length) return { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 };
-  if (t <= kfs[0].time_ms) return { ...kfs[0].joints };
-  const last = kfs[kfs.length - 1];
-  if (t >= last.time_ms) return { ...last.joints };
-  let i = 0;
-  while (i < kfs.length - 1 && kfs[i + 1].time_ms <= t) i++;
-  const a = kfs[i], b = kfs[i + 1];
-  const span = b.time_ms - a.time_ms || 1;
-  const t01 = (t - a.time_ms) / span;
-  const ease = (INTERP[a.interp] || INTERP.linear).ease;
-  const e = ease(t01);
+function newAxisKey(time_ms, value, interp = 'ease_in_out') {
+  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: Math.round(time_ms), value, interp };
+}
+
+function emptyTracks() {
+  return Object.fromEntries(JOINT_IDS.map(id => [id, []]));
+}
+
+function sortedTrack(track) {
+  return [...(track || [])].sort((a, b) => a.time_ms - b.time_ms);
+}
+
+function cloneTracks(tracks) {
+  return Object.fromEntries(JOINT_IDS.map(id => [id, sortedTrack(tracks[id]).map(k => ({ ...k }))]));
+}
+
+function trackKeyCount(p) {
+  return JOINT_IDS.reduce((sum, id) => sum + sortedTrack(p.tracks[id]).length, 0);
+}
+
+function slotKey(time_ms) {
+  return `slot-${Math.round(time_ms)}`;
+}
+
+function buildSlots(p) {
+  const map = new Map();
+  JOINT_IDS.forEach(jid => {
+    sortedTrack(p.tracks[jid]).forEach(k => {
+      if (!map.has(k.time_ms)) map.set(k.time_ms, { id: slotKey(k.time_ms), time_ms: k.time_ms, keys: {} });
+      map.get(k.time_ms).keys[jid] = k;
+    });
+  });
+  return [...map.values()].sort((a, b) => a.time_ms - b.time_ms);
+}
+
+function poseAtTime(p, t) {
   const out = {};
-  JOINT_IDS.forEach(id => { out[id] = a.joints[id] + (b.joints[id] - a.joints[id]) * e; });
+  JOINT_IDS.forEach(jid => {
+    const keys = sortedTrack(p.tracks[jid]);
+    if (!keys.length) { out[jid] = 0; return; }
+    if (t <= keys[0].time_ms) { out[jid] = keys[0].value; return; }
+    const last = keys[keys.length - 1];
+    if (t >= last.time_ms) { out[jid] = last.value; return; }
+    let i = 0;
+    while (i < keys.length - 1 && keys[i + 1].time_ms <= t) i++;
+    const a = keys[i], b = keys[i + 1];
+    const span = b.time_ms - a.time_ms || 1;
+    const t01 = (t - a.time_ms) / span;
+    const ease = (INTERP[a.interp] || INTERP.linear).ease;
+    out[jid] = a.value + (b.value - a.value) * ease(t01);
+  });
   return out;
 }
 
 function verifyPattern(p) {
   const issues = [];
   const MAX_DEG_PER_S = 220;
-  for (let i = 0; i < p.keyframes.length - 1; i++) {
-    const a = p.keyframes[i], b = p.keyframes[i + 1];
-    const dt = (b.time_ms - a.time_ms) / 1000;
-    if (dt <= 0) { issues.push({ lv: 'err', msg: `키프레임 ${i + 1}→${i + 2}: 시간 역전 또는 0 (${a.time_ms}→${b.time_ms}ms)` }); continue; }
-    JOINT_IDS.forEach(id => {
-      const dDeg = Math.abs(valToDeg(id, b.joints[id]) - valToDeg(id, a.joints[id]));
-      const speed = dDeg / dt;
-      if (speed > MAX_DEG_PER_S) issues.push({ lv: 'warn', msg: `${id} ${i + 1}→${i + 2}: ${speed.toFixed(0)}°/s — 권장 ${MAX_DEG_PER_S}°/s 초과` });
+  JOINT_IDS.forEach(jid => {
+    const keys = sortedTrack(p.tracks[jid]);
+    for (let i = 0; i < keys.length - 1; i++) {
+      const a = keys[i], b = keys[i + 1];
+      const dt = (b.time_ms - a.time_ms) / 1000;
+      if (dt <= 0) { issues.push({ lv: 'err', msg: `${jid} ${i + 1}->${i + 2}: 시간 역전 또는 0` }); continue; }
+      const speed = Math.abs(valToDeg(jid, b.value) - valToDeg(jid, a.value)) / dt;
+      if (speed > MAX_DEG_PER_S) issues.push({ lv: 'warn', msg: `${jid} ${i + 1}->${i + 2}: ${speed.toFixed(0)}deg/s - 권장 ${MAX_DEG_PER_S}deg/s 초과` });
+    }
+    keys.forEach((k, i) => {
+      if (isOverSoft(jid, k.value)) issues.push({ lv: 'warn', msg: `${jid} 키 ${i + 1}: 소프트 리밋 초과 (${valToDeg(jid, k.value).toFixed(0)}deg)` });
     });
-  }
-  p.keyframes.forEach((k, i) => {
-    JOINT_IDS.forEach(id => { if (isOverSoft(id, k.joints[id])) issues.push({ lv: 'warn', msg: `키프레임 ${i + 1}: ${id} 소프트 리밋 초과 (${valToDeg(id, k.joints[id]).toFixed(0)}°)` }); });
   });
   return issues;
 }
@@ -56,11 +92,14 @@ function patternToYaml(p) {
   y += `id: ${p.id}\n`;
   y += `description: "${p.desc}"\n`;
   y += `default_interp: ${p.defaultInterp}\n`;
-  y += `keyframes:\n`;
-  p.keyframes.forEach(k => {
-    y += `  - time_ms: ${k.time_ms}\n`;
-    y += `    interp: ${k.interp}\n`;
-    y += `    joints: { lower_yaw: ${k.joints.lower_yaw}, lower_pitch: ${k.joints.lower_pitch}, upper_yaw: ${k.joints.upper_yaw}, upper_pitch: ${k.joints.upper_pitch} }\n`;
+  y += `tracks:\n`;
+  JOINT_IDS.forEach(jid => {
+    y += `  ${jid}:\n`;
+    sortedTrack(p.tracks[jid]).forEach(k => {
+      y += `    - time_ms: ${k.time_ms}\n`;
+      y += `      value: ${k.value}\n`;
+      y += `      interp: ${k.interp}\n`;
+    });
   });
   return y;
 }
@@ -72,11 +111,10 @@ const GRAPH_COLORS = {
   upper_pitch: '#ff6b9a',
 };
 
-function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGrid, resolveTimeSlot, onSelect, onEditKey }) {
+function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, onSelectTime, onEditKey }) {
   const [lockTime, setLockTime] = React.useState(false);
   const [lockValue, setLockValue] = React.useState(false);
   const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
-  const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
   const [hover, setHover] = React.useState(false);
   const [dragging, setDragging] = React.useState(false);
   const [graphSize, setGraphSize] = React.useState({ w: 1000, h: 150 });
@@ -120,40 +158,29 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
     let d = '';
     for (let i = 0; i <= sampleCount; i++) {
       const tm = (viewDur * i) / sampleCount;
-      const pose = poseAtTime(p.keyframes, tm);
-      const x = xFromTime(tm);
-      const y = yFromValue(pose[jid] || 0);
-      d += `${i ? 'L' : 'M'}${x.toFixed(2)} ${y.toFixed(2)} `;
+      const pose = poseAtTime(p, tm);
+      d += `${i ? 'L' : 'M'}${xFromTime(tm).toFixed(2)} ${yFromValue(pose[jid] || 0).toFixed(2)} `;
     }
     return d;
   };
-  const startDrag = (e, k, jid) => {
+  const startDrag = (e, jid, k) => {
     e.stopPropagation();
     if (pickActive && !pickJoints[jid]) return;
-    onSelect(k);
+    onSelectTime(k.time_ms);
     if (lockTime && lockValue) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = {
-      id: k.id,
-      jid,
-      pointerId: e.pointerId,
-      time_ms: k.time_ms,
-      value: k.joints[jid],
-      duration: Math.max(viewDur, k.time_ms, 1),
-    };
+    dragRef.current = { jid, id: k.id, pointerId: e.pointerId, time_ms: k.time_ms, value: k.value, duration: Math.max(viewDur, k.time_ms, 1) };
     setDragging(true);
   };
   const moveDrag = e => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     e.preventDefault();
-    const k = p.keyframes.find(x => x.id === drag.id);
-    if (!k) return;
     const pt = pointFromEvent(e);
     const rawTime = (pt.x / W) * drag.duration;
-    const time_ms = lockTime ? drag.time_ms : resolveTimeSlot(drag.id, rawTime, drag.duration);
+    const time_ms = lockTime ? drag.time_ms : resolveAxisTime(drag.jid, drag.id, rawTime, drag.duration);
     const value = lockValue ? drag.value : Math.round(valueFromY(pt.y) * 10) / 10;
-    onEditKey(k, drag.jid, time_ms, value);
+    onEditKey(drag.jid, drag.id, time_ms, value);
   };
   const endDrag = e => {
     const drag = dragRef.current;
@@ -215,14 +242,14 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
             {graphJoints.map(jid => (
               <path key={jid} className="graph-curve" d={curvePath(jid)} style={{ stroke: GRAPH_COLORS[jid] }} />
             ))}
-            {p.keyframes.map(k => pointJoints.map(jid => (
-              <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''} ${pickActive && !pickJoints[jid] ? 'locked' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
+            {pointJoints.map(jid => sortedTrack(p.tracks[jid]).map(k => (
+              <circle key={`${jid}-${k.id}`} className={`graph-point ${k.time_ms === selTime ? 'sel' : ''} ${pickActive && !pickJoints[jid] ? 'locked' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.value)} r={k.time_ms === selTime ? 5 : 4}
                 style={{ fill: GRAPH_COLORS[jid] }}
-                onPointerDown={e => startDrag(e, k, jid)}
+                onPointerDown={e => startDrag(e, jid, k)}
                 onPointerMove={moveDrag}
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}>
-                <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.joints[jid])}`}</title>
+                <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.value)}`}</title>
               </circle>
             )))}
             <line className="graph-playhead" x1={xFromTime(t)} x2={xFromTime(t)} y1="0" y2={H} />
@@ -237,23 +264,32 @@ function TabMotion() {
   const s = useStore();
   const p = Store.getPattern(s.editingPatternId) || s.patterns[0];
   const dur = Store.patternDuration(p);
-  const [selId, setSelId] = React.useState(p.keyframes[0]?.id);
+  const slots = buildSlots(p);
+  const [selTime, setSelTime] = React.useState(slots[0]?.time_ms || 0);
   const [t, setT] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [showYaml, setShowYaml] = React.useState(false);
   const [verifyRes, setVerifyRes] = React.useState(null);
-  const [draggingKfId, setDraggingKfId] = React.useState(null);
+  const [draggingKey, setDraggingKey] = React.useState(null);
   const [poseClipboard, setPoseClipboard] = React.useState(null);
   const [timelineHover, setTimelineHover] = React.useState(false);
+  const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
   const rafRef = React.useRef();
   const playRef = React.useRef();
-  const trackRef = React.useRef();
+  const axisTrackRefs = React.useRef({});
   const dragRef = React.useRef();
   const suppressClickRef = React.useRef(false);
 
-  const sel = p.keyframes.find(k => k.id === selId) || p.keyframes[0];
+  const selSlot = slots.find(sl => sl.time_ms === selTime) || slots[0];
+  const selectedPose = poseAtTime(p, selSlot ? selSlot.time_ms : t);
+  const editAxes = JOINT_IDS.filter(id => pickJoints[id]);
+  const targetAxes = editAxes.length ? editAxes : JOINT_IDS;
 
-  // playback loop
+  React.useEffect(() => {
+    if (!slots.length) return;
+    if (!slots.some(sl => sl.time_ms === selTime)) setSelTime(slots[0].time_ms);
+  }, [p.id, slots.length]);
+
   React.useEffect(() => {
     if (!playing) return;
     let start = performance.now() - t;
@@ -261,7 +297,7 @@ function TabMotion() {
       let cur = now - start;
       if (cur >= dur) { cur = dur; setPlaying(false); Store.set({ playing: false }); }
       setT(cur);
-      Store.state.joints = poseAtTime(p.keyframes, cur);
+      Store.state.joints = poseAtTime(p, cur);
       Store.emit();
       if (cur < dur) rafRef.current = requestAnimationFrame(step);
     }
@@ -280,12 +316,22 @@ function TabMotion() {
     return () => window.removeEventListener('keydown', cancelPaste);
   }, [poseClipboard]);
 
+  const updateTracks = (tracks, nextTime) => {
+    Store.updatePattern(p.id, { tracks });
+    if (nextTime !== undefined) {
+      setSelTime(nextTime);
+      setT(nextTime);
+      Store.state.joints = poseAtTime({ ...p, tracks }, nextTime);
+      Store.emit();
+    }
+  };
   const scrub = (nt) => {
     setT(nt); setPlaying(false);
-    Store.state.joints = poseAtTime(p.keyframes, nt); Store.emit();
+    Store.state.joints = poseAtTime(p, nt); Store.emit();
   };
-  const selectKf = (k) => {
-    setSelId(k.id); scrub(k.time_ms);
+  const selectTime = (time_ms) => {
+    setSelTime(time_ms);
+    scrub(time_ms);
   };
   const playPreview = () => {
     if (playing) { setPlaying(false); Store.set({ playing: false }); return; }
@@ -304,31 +350,16 @@ function TabMotion() {
     runReal();
   };
   const stop = () => { setPlaying(false); Store.set({ playing: false, mode: 'stop' }); };
-
-  const updateSel = (patch) => {
-    const kfs = p.keyframes.map(k => k.id === sel.id ? { ...k, ...patch } : k).sort((a, b) => a.time_ms - b.time_ms);
-    Store.updatePattern(p.id, { keyframes: kfs });
+  const upsertAxisKey = (tracks, jid, key) => {
+    const rest = sortedTrack(tracks[jid]).filter(k => k.id !== key.id && k.time_ms !== key.time_ms);
+    return { ...tracks, [jid]: [...rest, key].sort((a, b) => a.time_ms - b.time_ms) };
   };
-  const updateKfTime = (id, time_ms) => {
-    const kfs = p.keyframes.map(k => k.id === id ? { ...k, time_ms } : k).sort((a, b) => a.time_ms - b.time_ms);
-    Store.updatePattern(p.id, { keyframes: kfs });
-  };
-  const updateGraphKey = (k, jid, time_ms, value) => {
-    if (playing) { setPlaying(false); Store.set({ playing: false }); }
-    const joints = { ...k.joints, [jid]: value };
-    const kfs = p.keyframes.map(x => x.id === k.id ? { ...x, time_ms, joints } : x).sort((a, b) => a.time_ms - b.time_ms);
-    Store.updatePattern(p.id, { keyframes: kfs });
-    setSelId(k.id);
-    setT(time_ms);
-    Store.state.joints = { ...joints };
-    Store.emit();
-  };
-  const resolveTimeSlot = (id, rawTime, span) => {
+  const resolveAxisTime = (jid, id, rawTime, span) => {
     const step = 50;
     const minGap = 30;
     const max = Math.max(0, Math.round(span));
     const base = Math.max(0, Math.min(max, Math.round(rawTime / step) * step));
-    const used = p.keyframes.filter(k => k.id !== id).map(k => k.time_ms);
+    const used = sortedTrack(p.tracks[jid]).filter(k => k.id !== id).map(k => k.time_ms);
     const ok = t0 => !used.some(t1 => Math.abs(t1 - t0) < minGap);
     if (ok(base)) return base;
     for (let offset = step; offset <= max + step; offset += step) {
@@ -339,118 +370,132 @@ function TabMotion() {
     }
     return base;
   };
-  const dragTimeFromPointer = (e) => {
-    const drag = dragRef.current;
-    const track = trackRef.current;
-    if (!drag || !track) return 0;
-    const r = track.getBoundingClientRect();
-    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    return resolveTimeSlot(drag.id, (x / Math.max(1, r.width)) * drag.duration, drag.duration);
-  };
   const timeFromTrackClick = (e, span) => {
     const r = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    return resolveTimeSlot(null, (x / Math.max(1, r.width)) * span, span);
+    return Math.max(0, Math.min(span, Math.round(((x / Math.max(1, r.width)) * span) / 50) * 50));
   };
-  const copyPose = (e, k, i) => {
+  const copyPose = (e, sl, i) => {
     e.stopPropagation();
-    setPoseClipboard({ sourceIndex: i + 1, sourceTime: k.time_ms, joints: { ...k.joints } });
-    Store.pushLog('cmd', 'studio', `KF ${i + 1} 자세 복사 — 붙여넣을 타임라인 위치 선택`);
+    setPoseClipboard({ sourceIndex: i + 1, sourceTime: sl.time_ms, joints: poseAtTime(p, sl.time_ms) });
+    Store.pushLog('cmd', 'studio', `슬롯 ${i + 1} 자세 복사 - 붙여넣을 타임라인 위치 선택`);
   };
   const pastePoseAt = (time_ms) => {
     if (!poseClipboard) return;
-    const k = { id: 'k' + Math.random().toString(36).slice(2, 8), time_ms, joints: { ...poseClipboard.joints }, interp: p.defaultInterp };
-    const kfs = [...p.keyframes, k].sort((a, b) => a.time_ms - b.time_ms);
-    Store.updatePattern(p.id, { keyframes: kfs });
-    setSelId(k.id);
-    setT(k.time_ms);
-    Store.state.joints = { ...k.joints }; Store.emit();
-    Store.pushLog('ok', 'studio', `복사 자세 키프레임 생성 @ ${k.time_ms}ms`);
+    let tracks = cloneTracks(p.tracks);
+    targetAxes.forEach(jid => {
+      tracks = upsertAxisKey(tracks, jid, newAxisKey(time_ms, poseClipboard.joints[jid], p.defaultInterp));
+    });
+    updateTracks(tracks, time_ms);
+    Store.pushLog('ok', 'studio', `복사 자세 ${targetAxes.length}축 키 생성 @ ${time_ms}ms`);
     setPoseClipboard(null);
   };
-  const handleTimelineClick = (e) => {
-    const nt = timeFromTrackClick(e, viewDur);
-    if (poseClipboard) { pastePoseAt(nt); return; }
-    scrub(nt);
+  const updateGraphKey = (jid, id, time_ms, value) => {
+    if (playing) { setPlaying(false); Store.set({ playing: false }); }
+    const tracks = cloneTracks(p.tracks);
+    tracks[jid] = sortedTrack(tracks[jid]).map(k => k.id === id ? { ...k, time_ms, value } : k).sort((a, b) => a.time_ms - b.time_ms);
+    updateTracks(tracks, time_ms);
   };
-  const startKfDrag = (e, k) => {
+  const updateSlotTime = (fromTime, toTime) => {
+    const tracks = cloneTracks(p.tracks);
+    JOINT_IDS.forEach(jid => {
+      tracks[jid] = sortedTrack(tracks[jid]).map(k => k.time_ms === fromTime ? { ...k, time_ms: resolveAxisTime(jid, k.id, toTime, Math.max(dur, toTime, 1)) } : k).sort((a, b) => a.time_ms - b.time_ms);
+    });
+    updateTracks(tracks, toTime);
+  };
+  const setSelJoint = (jid, v) => {
+    v = Math.max(-100, Math.min(100, v));
+    if (!selSlot || !selSlot.keys[jid]) return;
+    const tracks = cloneTracks(p.tracks);
+    tracks[jid] = sortedTrack(tracks[jid]).map(k => k.id === selSlot.keys[jid].id ? { ...k, value: v } : k);
+    updateTracks(tracks, selSlot.time_ms);
+  };
+  const addAxisToSlot = (jid) => {
+    if (!selSlot) return;
+    let tracks = cloneTracks(p.tracks);
+    tracks = upsertAxisKey(tracks, jid, newAxisKey(selSlot.time_ms, selectedPose[jid], p.defaultInterp));
+    updateTracks(tracks, selSlot.time_ms);
+  };
+  const removeAxisFromSlot = (time_ms, jid) => {
+    const slot = slots.find(sl => sl.time_ms === time_ms);
+    if (!slot || Object.keys(slot.keys).length <= 1) return;
+    const tracks = cloneTracks(p.tracks);
+    tracks[jid] = sortedTrack(tracks[jid]).filter(k => k.id !== slot.keys[jid]?.id);
+    updateTracks(tracks, time_ms);
+  };
+  const captureHere = () => {
+    let tracks = cloneTracks(p.tracks);
+    targetAxes.forEach(jid => {
+      tracks = upsertAxisKey(tracks, jid, newAxisKey(Math.round(t), Store.state.joints[jid], p.defaultInterp));
+    });
+    updateTracks(tracks, Math.round(t));
+    Store.pushLog('ok', 'studio', `현재 자세 ${targetAxes.length}축 캡처 @ ${Math.round(t)}ms`);
+  };
+  const delSlot = (sl) => {
+    if (slots.length <= 1) return;
+    const tracks = cloneTracks(p.tracks);
+    JOINT_IDS.forEach(jid => { tracks[jid] = sortedTrack(tracks[jid]).filter(k => k.time_ms !== sl.time_ms); });
+    const next = slots.find(x => x.time_ms !== sl.time_ms)?.time_ms || 0;
+    updateTracks(tracks, next);
+  };
+  const addPattern = () => {
+    const id = 'pat_' + Math.random().toString(36).slice(2, 6);
+    const tracks = emptyTracks();
+    JOINT_IDS.forEach(jid => {
+      tracks[jid] = [newAxisKey(0, 0, 'ease_in_out'), newAxisKey(1500, 0, 'ease_in_out')];
+    });
+    Store.set({ patterns: [...s.patterns, { id, name: '새 패턴', desc: '', defaultInterp: 'ease_in_out', tracks }], editingPatternId: id });
+    setSelTime(0); setT(0); setPoseClipboard(null);
+  };
+  const startAxisDrag = (e, jid, k) => {
     e.stopPropagation();
     if (playing) { setPlaying(false); Store.set({ playing: false }); }
     if (poseClipboard) setPoseClipboard(null);
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { id: k.id, pointerId: e.pointerId, duration: Math.max(dur, k.time_ms, 1) };
+    dragRef.current = { jid, id: k.id, pointerId: e.pointerId, duration: Math.max(dur, k.time_ms, 1) };
     suppressClickRef.current = false;
-    setDraggingKfId(k.id);
-    setSelId(k.id);
+    setDraggingKey(k.id);
+    setSelTime(k.time_ms);
     setT(k.time_ms);
-    Store.state.joints = { ...k.joints }; Store.emit();
+    Store.state.joints = poseAtTime(p, k.time_ms); Store.emit();
   };
-  const moveKfDrag = (e, k) => {
+  const moveAxisDrag = (e, jid, k) => {
     const drag = dragRef.current;
-    if (!drag || drag.id !== k.id || drag.pointerId !== e.pointerId) return;
+    const track = axisTrackRefs.current[jid];
+    if (!drag || drag.id !== k.id || drag.pointerId !== e.pointerId || !track) return;
     e.preventDefault();
-    const nt = dragTimeFromPointer(e);
+    const r = track.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    const nt = resolveAxisTime(jid, k.id, (x / Math.max(1, r.width)) * drag.duration, drag.duration);
     if (nt === k.time_ms) return;
     suppressClickRef.current = true;
-    updateKfTime(k.id, nt);
-    setSelId(k.id);
-    setT(nt);
-    Store.state.joints = { ...k.joints }; Store.emit();
+    updateGraphKey(jid, k.id, nt, k.value);
   };
-  const endKfDrag = (e, k) => {
+  const endAxisDrag = (e, k) => {
     const drag = dragRef.current;
     if (!drag || drag.id !== k.id || drag.pointerId !== e.pointerId) return;
     e.stopPropagation();
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
     dragRef.current = null;
-    setDraggingKfId(null);
-  };
-  const setSelJoint = (jid, v) => {
-    v = Math.max(-100, Math.min(100, v));
-    const joints = { ...sel.joints, [jid]: v };
-    updateSel({ joints });
-    Store.state.joints = joints; Store.emit();
-  };
-  const captureHere = () => {
-    const k = { id: 'k' + Math.random().toString(36).slice(2, 8), time_ms: Math.round(t), joints: { ...Store.state.joints }, interp: p.defaultInterp };
-    const kfs = [...p.keyframes.filter(x => Math.abs(x.time_ms - k.time_ms) > 30), k].sort((a, b) => a.time_ms - b.time_ms);
-    Store.updatePattern(p.id, { keyframes: kfs });
-    setSelId(k.id);
-    Store.pushLog('ok', 'studio', `키프레임 캡처 @ ${k.time_ms}ms`);
-  };
-  const delKf = (k) => {
-    if (p.keyframes.length <= 2) return;
-    Store.updatePattern(p.id, { keyframes: p.keyframes.filter(x => x.id !== k.id) });
-    if (selId === k.id) setSelId(p.keyframes[0].id);
-  };
-  const addPattern = () => {
-    const id = 'pat_' + Math.random().toString(36).slice(2, 6);
-    const np = { id, name: '새 패턴', desc: '', defaultInterp: 'ease_in_out',
-      keyframes: [{ id: 'k0', time_ms: 0, joints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 }, interp: 'ease_in_out' },
-                  { id: 'k1', time_ms: 1500, joints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 }, interp: 'ease_in_out' }] };
-    Store.set({ patterns: [...s.patterns, np], editingPatternId: id });
-    setSelId('k0'); setT(0);
+    setDraggingKey(null);
   };
 
-  const viewDur = Math.max(dur, draggingKfId && dragRef.current ? dragRef.current.duration : 0, 1);
+  const viewDur = Math.max(dur, draggingKey && dragRef.current ? dragRef.current.duration : 0, 1);
   const ticks = [];
   const tickStep = viewDur > 4000 ? 1000 : 500;
   for (let tm = 0; tm <= viewDur; tm += tickStep) ticks.push(tm);
   const snapTicks = [];
   for (let tm = 0; tm <= viewDur; tm += 50) snapTicks.push(tm);
-  const showSnapGrid = timelineHover || poseClipboard || draggingKfId;
+  const showSnapGrid = timelineHover || poseClipboard || draggingKey;
 
   return (
     <div style={{ height: '100%', display: 'grid', gridTemplateRows: '1fr', minHeight: 0 }}>
-      {/* BODY GRID */}
       <div style={{ display: 'grid', gridTemplateColumns: '240px 300px 1fr', gap: 12, padding: 12, minHeight: 0 }}>
-
-        {/* LEFT — pattern props + verify */}
         <div className="col" style={{ minHeight: 0 }}>
           <Panel title="모션 제어" accent="CONTROL" bodyClass="col motion-control" style={{ gap: 10 }}>
             <div className="field">
               <label>패턴</label>
-              <select className="ninput" value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); setSelId(np.keyframes[0]?.id); setT(0); setPoseClipboard(null); }}>
+              <select className="ninput" value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); const ns = buildSlots(np); setSelTime(ns[0]?.time_ms || 0); setT(0); setPoseClipboard(null); }}>
                 {s.patterns.map(pp => <option key={pp.id} value={pp.id}>{pp.name}</option>)}
               </select>
             </div>
@@ -461,16 +506,16 @@ function TabMotion() {
             </div>
             <div className="motion-control-meta">
               <span>t <b>{(t / 1000).toFixed(2)}s</b> / {(dur / 1000).toFixed(2)}s</span>
-              <span>{p.keyframes.length} keyframes</span>
+              <span>{trackKeyCount(p)} axis keys</span>
             </div>
           </Panel>
 
           <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
             <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
-            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력…" onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
+            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력..." onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
             <div className="field"><label>기본 보간</label>
               <select className="ninput" value={p.defaultInterp} onChange={e => Store.updatePattern(p.id, { defaultInterp: e.target.value })}>
-                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
+                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} - {INTERP[k].kr}</option>)}
               </select>
             </div>
             <button className="yaml-toggle" onClick={() => setShowYaml(v => !v)}>YAML 원문 {showYaml ? '접기' : '보기'}</button>
@@ -479,7 +524,7 @@ function TabMotion() {
 
           <Panel title="검증 결과" accent="VERIFY" className="flex1" bodyClass="scroll-y">
             {!verifyRes && <div style={{ color: 'var(--tx-3)', fontSize: 11, textAlign: 'center', padding: '14px 0' }}>「검증」을 눌러 속도·각도 안전성을 확인하세요.</div>}
-            {verifyRes && verifyRes.length === 0 && <div className="row center" style={{ gap: 8, color: 'var(--ok)', fontSize: 12 }}><Icon name="check" />문제 없음 — 안전 범위 내</div>}
+            {verifyRes && verifyRes.length === 0 && <div className="row center" style={{ gap: 8, color: 'var(--ok)', fontSize: 12 }}><Icon name="check" />문제 없음 - 안전 범위 내</div>}
             {verifyRes && verifyRes.map((iss, i) => (
               <div key={i} className={`logline ${iss.lv}`} style={{ borderRadius: 3, marginBottom: 4 }}>
                 <span className="lv">{LevelName(iss.lv)}</span><span className="msg">{iss.msg}</span>
@@ -488,7 +533,6 @@ function TabMotion() {
           </Panel>
         </div>
 
-        {/* KEYFRAMES */}
         <div className="col" style={{ minHeight: 0 }}>
           <Panel title="실행" accent="RUN" bodyClass="keyframe-run">
             <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
@@ -496,19 +540,25 @@ function TabMotion() {
             <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal}>실제 실행</Btn>
           </Panel>
 
-          <Panel title="키프레임" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">
+          <Panel title="키프레임 슬롯" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">
             <div className="scroll-y" style={{ height: '100%' }}>
               <div className="col gap8" style={{ padding: 10 }}>
-                {p.keyframes.map((k, i) => (
-                  <div key={k.id} className={`kf-item ${k.id === selId ? 'sel' : ''}`} onClick={() => selectKf(k)}>
+                {slots.map((sl, i) => (
+                  <div key={sl.id} className={`kf-item ${sl.time_ms === selTime ? 'sel' : ''}`} onClick={() => selectTime(sl.time_ms)}>
                     <span className="ix">{String(i + 1).padStart(2, '0')}</span>
                     <div className="info">
-                      <div className="tm">{k.time_ms} <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>ms</span></div>
-                      <div className="jv">{JOINT_IDS.map(id => fmtJointValue(k.joints[id])).join(' · ')} · {INTERP[k.interp].kr}</div>
+                      <div className="tm">{sl.time_ms} <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>ms</span></div>
+                      <div className="axis-chip-row">
+                        {JOINT_IDS.filter(id => sl.keys[id]).map(id => (
+                          <button key={id} className="axis-chip" style={{ color: GRAPH_COLORS[id] }} onClick={e => { e.stopPropagation(); removeAxisFromSlot(sl.time_ms, id); }} disabled={Object.keys(sl.keys).length <= 1} title={`${id} 축 키 삭제`}>
+                            <i style={{ background: GRAPH_COLORS[id] }}></i>{id.replace('_', '.')}<Icon name="trash" />
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <div className="row center" style={{ gap: 4 }}>
-                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => copyPose(e, k, i)} title="자세 복사"><Icon name="copy" /></button>
-                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => { e.stopPropagation(); delKf(k); }} title="삭제"><Icon name="trash" /></button>
+                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => copyPose(e, sl, i)} title="자세 복사"><Icon name="copy" /></button>
+                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => { e.stopPropagation(); delSlot(sl); }} title="슬롯 삭제"><Icon name="trash" /></button>
                     </div>
                   </div>
                 ))}
@@ -517,18 +567,22 @@ function TabMotion() {
           </Panel>
         </div>
 
-        {/* CENTER — 3D + edit stack + timeline ruler */}
         <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) minmax(250px, 1fr)', gap: 12, minHeight: 0 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 12, minHeight: 0 }}>
-            <Panel title="3D 뷰어" accent="STUDIO" ticked className="flex1" bodyClass="pad-0" sub="선택 키프레임 자세 표시">
-              <ViewerFrame interactive warnLimits label={playing ? 'PREVIEW ▶' : `KF ${p.keyframes.indexOf(sel) + 1}`} />
+            <Panel title="3D 뷰어" accent="STUDIO" ticked className="flex1" bodyClass="pad-0" sub="선택 시간 자세 표시">
+              <ViewerFrame interactive warnLimits label={playing ? 'PREVIEW' : `TIME ${fmtTimelineTime(selSlot?.time_ms || 0)}`} />
             </Panel>
 
             <div className="col" style={{ minHeight: 0 }}>
-              {/* joint sliders for selected kf */}
-              <Panel title={`키프레임 ${p.keyframes.indexOf(sel) + 1} 관절값`} accent="EDIT" className="flex1" bodyClass="col" style={{ gap: 0 }}>
+              <Panel title="선택 슬롯 관절값" accent="EDIT" className="flex1" bodyClass="col" style={{ gap: 0 }}>
                 <div className="col" style={{ gap: 0 }}>
-                  {JOINT_IDS.map(id => <JointSlider key={id} jid={id} value={sel.joints[id]} onChange={setSelJoint} compact />)}
+                  {JOINT_IDS.map(id => selSlot?.keys[id]
+                    ? <JointSlider key={id} jid={id} value={selSlot.keys[id].value} onChange={setSelJoint} compact />
+                    : <div key={id} className="missing-axis-key">
+                        <div><b>{id}</b><span>{fmtJointValue(selectedPose[id])} · 보간값</span></div>
+                        <button className="btn ghost sm" onClick={() => addAxisToSlot(id)}><Icon name="plus" />키</button>
+                      </div>
+                  )}
                 </div>
               </Panel>
 
@@ -545,13 +599,13 @@ function TabMotion() {
                 <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
                   <div className="field">
                     <label>시간 TIME_MS</label>
-                    <input className="ninput tnum" type="number" min="0" step="50" value={sel.time_ms} onChange={e => updateSel({ time_ms: parseInt(e.target.value || '0') })} />
+                    <input className="ninput tnum" type="number" min="0" step="50" value={selSlot?.time_ms || 0} onChange={e => updateSlotTime(selSlot?.time_ms || 0, parseInt(e.target.value || '0'))} />
                   </div>
                   <div className="field">
-                    <label>보간 방식 INTERP</label>
-                    <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
-                      {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
-                    </select>
+                    <label>포함 축</label>
+                    <div className="axis-chip-row static">
+                      {JOINT_IDS.filter(id => selSlot?.keys[id]).map(id => <span key={id} className="axis-chip text" style={{ color: GRAPH_COLORS[id] }}><i style={{ background: GRAPH_COLORS[id] }}></i>{id.replace('_', '.')}</span>)}
+                    </div>
                   </div>
                 </Panel>
               </div>
@@ -559,8 +613,7 @@ function TabMotion() {
           </div>
 
           <div className="motion-lower">
-            {/* timeline */}
-            <div className="timeline-wrap">
+            <div className="timeline-wrap axis-mode">
               <div className="tl-timebox">
                 <span className="total">{fmtTimelineTime(dur)}</span>
                 <span className="selected">{fmtTimelineTime(t)}</span>
@@ -571,37 +624,43 @@ function TabMotion() {
                 {poseClipboard && (
                   <div className="tl-paste-overlay">
                     <span>붙여넣을 시간 위치를 클릭하세요</span>
-                    <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
+                    <em>슬롯 {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
                   </div>
                 )}
-                <div className="tl-ruler" onClick={handleTimelineClick}>
+                <div className="tl-ruler" onClick={e => { const nt = timeFromTrackClick(e, viewDur); if (poseClipboard) pastePoseAt(nt); else scrub(nt); }}>
                   {ticks.map(tm => (
                     <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
                   ))}
                 </div>
-                <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
-                  <div className="tl-snap-grid">
-                    {snapTicks.map(tm => (
-                      <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
-                    ))}
-                  </div>
-                  {p.keyframes.map(k => (
-                    <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
-                      onPointerDown={e => startKfDrag(e, k)}
-                      onPointerMove={e => moveKfDrag(e, k)}
-                      onPointerUp={e => endKfDrag(e, k)}
-                      onPointerCancel={e => endKfDrag(e, k)}
-                      onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
+                <div className="axis-timeline">
+                  {JOINTS.map(j => (
+                    <div key={j.id} className="axis-track-row">
+                      <div className="axis-track-label" style={{ color: GRAPH_COLORS[j.id] }}>{j.kr}</div>
+                      <div className="axis-track" ref={el => { axisTrackRefs.current[j.id] = el; }} onClick={e => { const nt = timeFromTrackClick(e, viewDur); if (poseClipboard) pastePoseAt(nt); else scrub(nt); }}>
+                        <div className="tl-snap-grid">
+                          {snapTicks.map(tm => (
+                            <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+                          ))}
+                        </div>
+                        {sortedTrack(p.tracks[j.id]).map(k => (
+                          <div key={k.id} className={`tl-key axis-key ${k.time_ms === selTime ? 'sel' : ''} ${k.id === draggingKey ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%', borderColor: GRAPH_COLORS[j.id] }}
+                            onPointerDown={e => startAxisDrag(e, j.id, k)}
+                            onPointerMove={e => moveAxisDrag(e, j.id, k)}
+                            onPointerUp={e => endAxisDrag(e, k)}
+                            onPointerCancel={e => endAxisDrag(e, k)}
+                            onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectTime(k.time_ms); }} title={`${j.id} ${k.time_ms}ms`}></div>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                   <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
                 </div>
               </div>
             </div>
-            <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selId={selId} showSnapGrid={showSnapGrid}
-              resolveTimeSlot={resolveTimeSlot} onSelect={selectKf} onEditKey={updateGraphKey} />
+            <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selTime={selTime} showSnapGrid={showSnapGrid}
+              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} onSelectTime={selectTime} onEditKey={updateGraphKey} />
           </div>
         </div>
-
       </div>
     </div>
   );

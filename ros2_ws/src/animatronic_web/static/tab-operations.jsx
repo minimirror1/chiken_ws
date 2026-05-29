@@ -54,7 +54,7 @@ function TabOperations() {
           <div className="hdiv"></div>
           <KV k="마지막 동작" v={relTime(s.lastActionTime)} mono={false} />
           <KV k="패턴 ID" v={s.activePattern} />
-          <KV k="키프레임" v={pat ? pat.keyframes.length + ' 개' : '—'} />
+          <KV k="축 키" v={pat ? Store.trackKeyCount(pat) + ' 개' : '—'} />
           <KV k="길이" v={pat ? (Store.patternDuration(pat) / 1000).toFixed(1) + ' s' : '—'} />
           <KV k="보간" v={pat ? INTERP[pat.defaultInterp].kr : '—'} />
         </Panel>

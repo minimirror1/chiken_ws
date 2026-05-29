@@ -1,3 +1,7 @@
 name: idle
 description: Minimal placeholder pattern for dashboard editing.
-keyframes: []
+tracks:
+  lower_yaw: []
+  lower_pitch: []
+  upper_yaw: []
+  upper_pitch: []

@@ -17,9 +17,9 @@ function TabManual() {
   const captureToStudio = () => {
     const p = Store.getPattern(s.editingPatternId) || s.patterns[0];
     const t = Store.patternDuration(p) + 600;
-    const k = { id: 'k' + Math.random().toString(36).slice(2, 8), time_ms: t, joints: { ...view }, interp: p.defaultInterp };
-    Store.updatePattern(p.id, { keyframes: [...p.keyframes, k] });
-    Store.pushLog('ok', 'manual', `현재 자세 → '${p.name}' 키프레임 캡처 (t=${t}ms)`);
+    const tracks = Object.fromEntries(JOINT_IDS.map(id => [id, [...(p.tracks[id] || []), { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: t, value: view[id], interp: p.defaultInterp }].sort((a, b) => a.time_ms - b.time_ms)]));
+    Store.updatePattern(p.id, { tracks });
+    Store.pushLog('ok', 'manual', `현재 자세 → '${p.name}' 축 키 캡처 (t=${t}ms)`);
   };
 
   const overAny = JOINT_IDS.some(id => isOverSoft(id, view[id]));

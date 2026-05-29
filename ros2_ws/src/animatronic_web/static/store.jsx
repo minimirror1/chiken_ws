@@ -35,21 +35,31 @@ const INTERP = {
 };
 
 // ---- seed patterns ----
-function kf(t, ly, lp, uy, up, interp = 'ease_in_out') {
-  return { id: 'k' + Math.random().toString(36).slice(2, 8), time_ms: t,
-    joints: { lower_yaw: ly, lower_pitch: lp, upper_yaw: uy, upper_pitch: up }, interp };
+function trackKey(t, value, interp = 'ease_in_out') {
+  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: t, value, interp };
+}
+function tracksFromFrames(frames) {
+  const tracks = Object.fromEntries(JOINT_IDS.map(id => [id, []]));
+  frames.forEach(f => {
+    tracks.lower_yaw.push(trackKey(f[0], f[1], f[5]));
+    tracks.lower_pitch.push(trackKey(f[0], f[2], f[5]));
+    tracks.upper_yaw.push(trackKey(f[0], f[3], f[5]));
+    tracks.upper_pitch.push(trackKey(f[0], f[4], f[5]));
+  });
+  JOINT_IDS.forEach(id => tracks[id].sort((a, b) => a.time_ms - b.time_ms));
+  return tracks;
 }
 const SEED_PATTERNS = [
   { id: 'idle_breathe', name: '기본 호흡', desc: '대기 상태의 미세한 상하 움직임', defaultInterp: 'ease_in_out',
-    keyframes: [ kf(0,0,0,0,0), kf(1400,0,6,0,-4), kf(2800,0,0,0,0), kf(4200,0,6,0,-4), kf(5600,0,0,0,0) ] },
+    tracks: tracksFromFrames([[0,0,0,0,0], [1400,0,6,0,-4], [2800,0,0,0,0], [4200,0,6,0,-4], [5600,0,0,0,0]]) },
   { id: 'curious_peck', name: '호기심 쪼기', desc: '앞으로 숙이며 두세 번 쪼는 동작', defaultInterp: 'ease_in_out',
-    keyframes: [ kf(0,0,0,0,0), kf(500,10,18,0,40,'ease_in_out'), kf(900,10,30,0,55,'snap'), kf(1300,10,18,0,40), kf(1700,10,30,0,55,'snap'), kf(2200,0,0,0,0) ] },
+    tracks: tracksFromFrames([[0,0,0,0,0], [500,10,18,0,40,'ease_in_out'], [900,10,30,0,55,'snap'], [1300,10,18,0,40], [1700,10,30,0,55,'snap'], [2200,0,0,0,0]]) },
   { id: 'alert_look', name: '경계 두리번', desc: '좌우로 빠르게 살피는 경계 자세', defaultInterp: 'ease_in_out',
-    keyframes: [ kf(0,0,0,0,0), kf(600,-45,-8,-30,-12), kf(1100,-45,-8,-30,-12,'hold'), kf(1700,45,-8,30,-12), kf(2200,45,-8,30,-12,'hold'), kf(2900,0,0,0,0) ] },
+    tracks: tracksFromFrames([[0,0,0,0,0], [600,-45,-8,-30,-12], [1100,-45,-8,-30,-12,'hold'], [1700,45,-8,30,-12], [2200,45,-8,30,-12,'hold'], [2900,0,0,0,0]]) },
   { id: 'greet_bob', name: '인사 까딱', desc: '사람을 향해 고개를 까딱이는 반응', defaultInterp: 'ease_in_out',
-    keyframes: [ kf(0,0,0,0,0), kf(450,0,12,0,30), kf(800,0,-4,0,-18), kf(1200,0,12,0,30), kf(1600,0,0,0,0) ] },
+    tracks: tracksFromFrames([[0,0,0,0,0], [450,0,12,0,30], [800,0,-4,0,-18], [1200,0,12,0,30], [1600,0,0,0,0]]) },
   { id: 'shake_off', name: '털기', desc: '온몸을 좌우로 빠르게 터는 동작', defaultInterp: 'linear',
-    keyframes: [ kf(0,0,0,0,0), kf(150,18,0,-22,6,'snap'), kf(300,-18,0,22,-6,'snap'), kf(450,16,0,-20,6,'snap'), kf(600,-16,0,20,-6,'snap'), kf(800,0,0,0,0) ] },
+    tracks: tracksFromFrames([[0,0,0,0,0], [150,18,0,-22,6,'snap'], [300,-18,0,22,-6,'snap'], [450,16,0,-20,6,'snap'], [600,-16,0,20,-6,'snap'], [800,0,0,0,0]]) },
 ];
 
 // ---- log seed ----
@@ -60,7 +70,7 @@ const SEED_LOGS = [
   { lv: 'ok',   src: 'bringup',  msg: 'ros2 control_node 시작 — 4 motors enumerated' },
   { lv: 'info', src: 'sensor',   msg: 'mmWave R60ABD1 연결됨 @ /dev/ttyUSB0 (115200)' },
   { lv: 'cmd',  src: 'operator', msg: '모드 전환 → DETECT' },
-  { lv: 'ok',   src: 'motion',   msg: "패턴 'idle_breathe' 로드 완료 (5 keyframes)" },
+  { lv: 'ok',   src: 'motion',   msg: "패턴 'idle_breathe' 로드 완료 (axis tracks)" },
   { lv: 'info', src: 'sensor',   msg: '감지 영역 진입: person#3 @ 2.4m / +18°' },
   { lv: 'cmd',  src: 'motion',   msg: "패턴 'greet_bob' 실행 (trigger: proximity)" },
   { lv: 'warn', src: 'motor',    msg: 'upper_pitch 부하 일시 상승 41% — 정상 범위 복귀' },
@@ -171,7 +181,13 @@ const Store = {
   pushLog(lv, src, msg) { this.log(lv, src, msg); this.emit(); },
 
   getPattern(id) { return this.state.patterns.find(p => p.id === id); },
-  patternDuration(p) { return p && p.keyframes.length ? p.keyframes[p.keyframes.length - 1].time_ms : 0; },
+  trackKeyCount(p) {
+    return p && p.tracks ? JOINT_IDS.reduce((sum, id) => sum + (p.tracks[id] || []).length, 0) : 0;
+  },
+  patternDuration(p) {
+    if (!p || !p.tracks) return 0;
+    return Math.max(0, ...JOINT_IDS.flatMap(id => (p.tracks[id] || []).map(k => k.time_ms)));
+  },
   updatePattern(id, patch) {
     this.state.patterns = this.state.patterns.map(p => p.id === id ? { ...p, ...patch } : p);
     this.emit();
