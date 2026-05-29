@@ -340,7 +340,7 @@ function TabMotion() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '118px 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '118px minmax(190px, 220px) 1fr', gap: 12 }}>
             <Panel title="캡처" accent="CAPTURE" bodyClass="col gap8">
               <button className="btn cy capture-btn" onClick={captureHere}>
                 <Icon name="capture" />
@@ -349,6 +349,20 @@ function TabMotion() {
                 <em>{(t / 1000).toFixed(2)}s</em>
               </button>
               <span className="hint" style={{ fontSize: 10, color: 'var(--tx-3)' }}>3D에서 자세를 잡고 캡처하면 현재 재생 위치에 키프레임이 추가됩니다.</span>
+            </Panel>
+
+            <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
+              <div className="field">
+                <label>시간 TIME_MS</label>
+                <input className="ninput tnum" type="number" min="0" step="50" value={sel.time_ms} onChange={e => updateSel({ time_ms: parseInt(e.target.value || '0') })} />
+              </div>
+              <div className="field">
+                <label>보간 방식 INTERP</label>
+                <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
+                  {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
+                </select>
+                <span className="hint">다음 키프레임으로 전환하는 방식</span>
+              </div>
             </Panel>
 
             {/* joint sliders for selected kf */}
@@ -360,24 +374,8 @@ function TabMotion() {
           </div>
         </div>
 
-        {/* RIGHT — selected kf props + verify */}
+        {/* RIGHT — pattern props + verify */}
         <div className="col" style={{ minHeight: 0 }}>
-          <Panel title="선택 키프레임" accent="PROPS" bodyClass="col" style={{ gap: 12 }}>
-            <div className="field">
-              <label>시간 TIME_MS</label>
-              <input className="ninput tnum" type="number" min="0" step="50" value={sel.time_ms} onChange={e => updateSel({ time_ms: parseInt(e.target.value || '0') })} />
-            </div>
-            <div className="field">
-              <label>보간 방식 INTERP</label>
-              <select className="ninput" value={sel.interp} onChange={e => updateSel({ interp: e.target.value })}>
-                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
-              </select>
-              <span className="hint">이 키프레임에서 다음 키프레임으로 전환하는 방식</span>
-            </div>
-            <div className="hdiv"></div>
-            {JOINT_IDS.map(id => <KV key={id} k={id} v={`${sel.joints[id]} · ${valToDeg(id, sel.joints[id]).toFixed(0)}°`} />)}
-          </Panel>
-
           <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
             <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
             <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력…" onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
