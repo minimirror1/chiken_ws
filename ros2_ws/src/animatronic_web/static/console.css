@@ -535,9 +535,21 @@ body {
 .graph-tool:hover:not(:disabled) { border-color: var(--line-2); color: var(--tx-0); background: var(--bg-3); }
 .graph-tool.on { border-color: var(--cy-line); background: var(--cy-dim); color: var(--cy); box-shadow: inset 0 0 0 1px var(--cy-dim); }
 .graph-tool:disabled { opacity: .42; cursor: default; }
-.graph-legend { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
-.graph-legend span { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; color: var(--tx-2); white-space: nowrap; }
+.graph-legend { display: flex; flex-direction: column; gap: 5px; margin-top: auto; }
+.graph-legend-row { display: grid; grid-template-columns: 18px 18px minmax(0, 1fr); align-items: center; gap: 3px; min-width: 0; }
+.graph-legend-row.muted span { opacity: .45; }
+.graph-legend-row.pick span { color: var(--tx-0); }
+.graph-legend span { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 10px; color: var(--tx-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .graph-legend i { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 6px currentColor; }
+.graph-mini {
+  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line-1); border-radius: 3px; background: var(--bg-2); color: var(--tx-3);
+  cursor: pointer; padding: 0;
+}
+.graph-mini .ic { width: 12px; height: 12px; }
+.graph-mini:hover { border-color: var(--line-2); color: var(--tx-0); background: var(--bg-3); }
+.graph-mini.on { color: var(--tx-0); border-color: rgba(255,255,255,.18); }
+.graph-mini.on.pick { color: var(--cy); border-color: var(--cy-line); background: var(--cy-dim); }
 .motion-graph { min-width: 0; min-height: 0; border: 1px solid var(--line-1); border-radius: var(--r); overflow: hidden; background: var(--bg-2); }
 .motion-graph svg { display: block; width: 100%; height: 100%; touch-action: none; }
 .graph-bg { fill: var(--bg-2); }
@@ -550,6 +562,7 @@ body {
 .graph-zero { stroke: rgba(255,255,255,.24); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .graph-curve { fill: none; stroke-width: 2; opacity: .84; vector-effect: non-scaling-stroke; }
 .graph-point { stroke: var(--bg-0); stroke-width: 1.5; cursor: grab; vector-effect: non-scaling-stroke; }
+.graph-point.locked { opacity: .35; pointer-events: none; }
 .graph-point:hover { stroke: #fff; stroke-width: 2; }
 .graph-point.sel { stroke: #fff; filter: drop-shadow(0 0 4px rgba(0,209,255,.75)); }
 .graph-point:active { cursor: grabbing; }

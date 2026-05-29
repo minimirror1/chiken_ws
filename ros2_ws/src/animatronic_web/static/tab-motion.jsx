@@ -75,6 +75,8 @@ const GRAPH_COLORS = {
 function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGrid, resolveTimeSlot, onSelect, onEditKey }) {
   const [lockTime, setLockTime] = React.useState(false);
   const [lockValue, setLockValue] = React.useState(false);
+  const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
+  const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
   const [hover, setHover] = React.useState(false);
   const [dragging, setDragging] = React.useState(false);
   const [graphSize, setGraphSize] = React.useState({ w: 1000, h: 150 });
@@ -83,6 +85,12 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
   const W = graphSize.w, H = graphSize.h, PAD = 14;
   const innerH = Math.max(1, H - PAD * 2);
   const sampleCount = Math.max(24, Math.min(180, Math.ceil(viewDur / 40)));
+  const pickActive = JOINT_IDS.some(id => pickJoints[id]);
+  const graphJoints = JOINT_IDS.filter(id => visibleJoints[id]);
+  const pointJoints = [
+    ...graphJoints.filter(id => pickActive && !pickJoints[id]),
+    ...graphJoints.filter(id => !pickActive || pickJoints[id]),
+  ];
 
   React.useEffect(() => {
     const el = graphRef.current;
@@ -121,6 +129,7 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
   };
   const startDrag = (e, k, jid) => {
     e.stopPropagation();
+    if (pickActive && !pickJoints[jid]) return;
     onSelect(k);
     if (lockTime && lockValue) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -168,7 +177,15 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
       <div className="graph-tools">
         <div className="graph-legend">
           {JOINTS.map(j => (
-            <span key={j.id}><i style={{ background: GRAPH_COLORS[j.id] }}></i>{j.kr}</span>
+            <div key={j.id} className={`graph-legend-row ${visibleJoints[j.id] ? '' : 'muted'} ${pickJoints[j.id] ? 'pick' : ''}`}>
+              <button className={`graph-mini ${visibleJoints[j.id] ? 'on' : ''}`} title={`${j.kr} 그래프 표시`} onClick={() => setVisibleJoints(v => ({ ...v, [j.id]: !v[j.id] }))}>
+                <Icon name={visibleJoints[j.id] ? 'eye' : 'eyeOff'} />
+              </button>
+              <button className={`graph-mini ${pickJoints[j.id] ? 'on pick' : ''}`} title={`${j.kr} 선택 고정`} onClick={() => setPickJoints(v => ({ ...v, [j.id]: !v[j.id] }))}>
+                <Icon name="select" />
+              </button>
+              <span><i style={{ background: GRAPH_COLORS[j.id] }}></i>{j.kr}</span>
+            </div>
           ))}
         </div>
       </div>
@@ -195,11 +212,11 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
             <line className="graph-limit" x1="0" x2={W} y1={yFromValue(100)} y2={yFromValue(100)} />
             <line className="graph-zero" x1="0" x2={W} y1={yFromValue(0)} y2={yFromValue(0)} />
             <line className="graph-limit" x1="0" x2={W} y1={yFromValue(-100)} y2={yFromValue(-100)} />
-            {JOINT_IDS.map(jid => (
+            {graphJoints.map(jid => (
               <path key={jid} className="graph-curve" d={curvePath(jid)} style={{ stroke: GRAPH_COLORS[jid] }} />
             ))}
-            {p.keyframes.map(k => JOINT_IDS.map(jid => (
-              <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
+            {p.keyframes.map(k => pointJoints.map(jid => (
+              <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''} ${pickActive && !pickJoints[jid] ? 'locked' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
                 style={{ fill: GRAPH_COLORS[jid] }}
                 onPointerDown={e => startDrag(e, k, jid)}
                 onPointerMove={moveDrag}
