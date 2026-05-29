@@ -299,10 +299,6 @@ function TabMotion() {
               </div>
             </div>
           </Panel>
-          <Panel title="캡처" accent="CAPTURE" bodyClass="col gap8">
-            <Btn kind="cy" block icon="capture" onClick={captureHere}>현재 3D 자세 캡처 @ {(t / 1000).toFixed(2)}s</Btn>
-            <span className="hint" style={{ fontSize: 10, color: 'var(--tx-3)' }}>3D에서 자세를 잡고 캡처하면 현재 재생 위치에 키프레임이 추가됩니다.</span>
-          </Panel>
         </div>
 
         {/* CENTER — 3D + sliders + timeline ruler */}
@@ -344,12 +340,24 @@ function TabMotion() {
             </div>
           </div>
 
-          {/* joint sliders for selected kf */}
-          <Panel title={`키프레임 ${p.keyframes.indexOf(sel) + 1} 관절값`} accent="EDIT" bodyClass="col" style={{ gap: 0 }}>
-            <div className="col" style={{ gap: 0 }}>
-              {JOINT_IDS.map(id => <JointSlider key={id} jid={id} value={sel.joints[id]} onChange={setSelJoint} compact />)}
-            </div>
-          </Panel>
+          <div style={{ display: 'grid', gridTemplateColumns: '118px 1fr', gap: 12 }}>
+            <Panel title="캡처" accent="CAPTURE" bodyClass="col gap8">
+              <button className="btn cy capture-btn" onClick={captureHere}>
+                <Icon name="capture" />
+                <span>현재 자세</span>
+                <b>캡처</b>
+                <em>{(t / 1000).toFixed(2)}s</em>
+              </button>
+              <span className="hint" style={{ fontSize: 10, color: 'var(--tx-3)' }}>3D에서 자세를 잡고 캡처하면 현재 재생 위치에 키프레임이 추가됩니다.</span>
+            </Panel>
+
+            {/* joint sliders for selected kf */}
+            <Panel title={`키프레임 ${p.keyframes.indexOf(sel) + 1} 관절값`} accent="EDIT" bodyClass="col" style={{ gap: 0 }}>
+              <div className="col" style={{ gap: 0 }}>
+                {JOINT_IDS.map(id => <JointSlider key={id} jid={id} value={sel.joints[id]} onChange={setSelJoint} compact />)}
+              </div>
+            </Panel>
+          </div>
         </div>
 
         {/* RIGHT — selected kf props + verify */}

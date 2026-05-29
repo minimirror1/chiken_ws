@@ -262,6 +262,15 @@ body {
 .btn.block { width: 100%; }
 .btn.cy { border-color: var(--cy-line); color: var(--cy); background: var(--cy-dim); }
 .btn.cy:hover { background: rgba(63,199,212,0.22); }
+.capture-btn {
+  width: 82px; aspect-ratio: 1 / 1; flex-direction: column; gap: 3px;
+  padding: 8px; justify-self: center; align-self: center; white-space: normal;
+  line-height: 1.15;
+}
+.capture-btn .ic { width: 16px; height: 16px; }
+.capture-btn span { font-size: 11px; color: var(--tx-1); }
+.capture-btn b { font-size: 13px; color: var(--cy); font-weight: 700; }
+.capture-btn em { font-family: var(--mono); font-size: 10px; color: var(--tx-2); font-style: normal; }
 .btn.solid { background: var(--cy); border-color: var(--cy); color: #06222a; font-weight: 600; }
 .btn.solid:hover { background: #56d4e0; }
 .btn.warn { border-color: rgba(227,171,70,.45); color: var(--warn); background: var(--warn-dim); }
