@@ -26,39 +26,34 @@ function isOverSoft(jid, v) {
   return Math.abs(valToDeg(jid, v)) > j.soft;
 }
 
-// ---- interpolation labels ----
-const INTERP = {
-  linear:      { kr: '선형',     ease: t => t },
-  ease_in_out: { kr: '부드럽게', ease: t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2 },
-  snap:        { kr: '즉시',     ease: t => t >= 1 ? 1 : 0 },
-  hold:        { kr: '유지',     ease: () => 0 },
-};
-
 // ---- seed patterns ----
-function trackKey(t, value, interp = 'ease_in_out') {
-  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: t, value, interp };
+function defaultTangent(mode = 'auto') {
+  return { in: { mode, dx: 120, dy: 0 }, out: { mode, dx: 120, dy: 0 }, broken: false };
+}
+function trackKey(t, value, tangentMode = 'auto') {
+  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: t, value, tangent: defaultTangent(tangentMode) };
 }
 function tracksFromFrames(frames) {
   const tracks = Object.fromEntries(JOINT_IDS.map(id => [id, []]));
   frames.forEach(f => {
-    tracks.lower_yaw.push(trackKey(f[0], f[1], f[5]));
-    tracks.lower_pitch.push(trackKey(f[0], f[2], f[5]));
-    tracks.upper_yaw.push(trackKey(f[0], f[3], f[5]));
-    tracks.upper_pitch.push(trackKey(f[0], f[4], f[5]));
+    tracks.lower_yaw.push(trackKey(f[0], f[1]));
+    tracks.lower_pitch.push(trackKey(f[0], f[2]));
+    tracks.upper_yaw.push(trackKey(f[0], f[3]));
+    tracks.upper_pitch.push(trackKey(f[0], f[4]));
   });
   JOINT_IDS.forEach(id => tracks[id].sort((a, b) => a.time_ms - b.time_ms));
   return tracks;
 }
 const SEED_PATTERNS = [
-  { id: 'idle_breathe', name: '기본 호흡', desc: '대기 상태의 미세한 상하 움직임', defaultInterp: 'ease_in_out',
+  { id: 'idle_breathe', name: '기본 호흡', desc: '대기 상태의 미세한 상하 움직임',
     tracks: tracksFromFrames([[0,0,0,0,0], [1400,0,6,0,-4], [2800,0,0,0,0], [4200,0,6,0,-4], [5600,0,0,0,0]]) },
-  { id: 'curious_peck', name: '호기심 쪼기', desc: '앞으로 숙이며 두세 번 쪼는 동작', defaultInterp: 'ease_in_out',
+  { id: 'curious_peck', name: '호기심 쪼기', desc: '앞으로 숙이며 두세 번 쪼는 동작',
     tracks: tracksFromFrames([[0,0,0,0,0], [500,10,18,0,40,'ease_in_out'], [900,10,30,0,55,'snap'], [1300,10,18,0,40], [1700,10,30,0,55,'snap'], [2200,0,0,0,0]]) },
-  { id: 'alert_look', name: '경계 두리번', desc: '좌우로 빠르게 살피는 경계 자세', defaultInterp: 'ease_in_out',
+  { id: 'alert_look', name: '경계 두리번', desc: '좌우로 빠르게 살피는 경계 자세',
     tracks: tracksFromFrames([[0,0,0,0,0], [600,-45,-8,-30,-12], [1100,-45,-8,-30,-12,'hold'], [1700,45,-8,30,-12], [2200,45,-8,30,-12,'hold'], [2900,0,0,0,0]]) },
-  { id: 'greet_bob', name: '인사 까딱', desc: '사람을 향해 고개를 까딱이는 반응', defaultInterp: 'ease_in_out',
+  { id: 'greet_bob', name: '인사 까딱', desc: '사람을 향해 고개를 까딱이는 반응',
     tracks: tracksFromFrames([[0,0,0,0,0], [450,0,12,0,30], [800,0,-4,0,-18], [1200,0,12,0,30], [1600,0,0,0,0]]) },
-  { id: 'shake_off', name: '털기', desc: '온몸을 좌우로 빠르게 터는 동작', defaultInterp: 'linear',
+  { id: 'shake_off', name: '털기', desc: '온몸을 좌우로 빠르게 터는 동작',
     tracks: tracksFromFrames([[0,0,0,0,0], [150,18,0,-22,6,'snap'], [300,-18,0,22,-6,'snap'], [450,16,0,-20,6,'snap'], [600,-16,0,20,-6,'snap'], [800,0,0,0,0]]) },
 ];
 
@@ -263,7 +258,7 @@ window.Store = Store;
 window.useStore = useStore;
 window.JOINTS = JOINTS;
 window.JOINT_IDS = JOINT_IDS;
-window.INTERP = INTERP;
+window.defaultTangent = defaultTangent;
 window.valToDeg = valToDeg;
 window.valToRaw = valToRaw;
 window.isOverSoft = isOverSoft;

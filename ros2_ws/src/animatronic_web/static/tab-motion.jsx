@@ -14,8 +14,8 @@ function fmtTimelineTime(ms) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(millis).padStart(3, '0')}`;
 }
 
-function newAxisKey(time_ms, value, interp = 'ease_in_out') {
-  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: Math.round(time_ms), value, interp };
+function newAxisKey(time_ms, value, tangentMode = 'auto') {
+  return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: Math.round(time_ms), value, tangent: defaultTangent(tangentMode) };
 }
 
 function emptyTracks() {
@@ -27,7 +27,10 @@ function sortedTrack(track) {
 }
 
 function cloneTracks(tracks) {
-  return Object.fromEntries(JOINT_IDS.map(id => [id, sortedTrack(tracks[id]).map(k => ({ ...k }))]));
+  return Object.fromEntries(JOINT_IDS.map(id => [id, sortedTrack(tracks[id]).map(k => ({
+    ...k,
+    tangent: { in: { ...k.tangent.in }, out: { ...k.tangent.out }, broken: !!k.tangent.broken },
+  }))]));
 }
 
 function trackKeyCount(p) {
@@ -49,6 +52,47 @@ function buildSlots(p) {
   return [...map.values()].sort((a, b) => a.time_ms - b.time_ms);
 }
 
+function tangentMode(k, side) {
+  return k.tangent?.[side]?.mode || 'auto';
+}
+
+function linearSlope(a, b) {
+  return (b.value - a.value) / Math.max(1, b.time_ms - a.time_ms);
+}
+
+function autoSlope(keys, i) {
+  const prev = keys[Math.max(0, i - 1)];
+  const next = keys[Math.min(keys.length - 1, i + 1)];
+  if (prev === next) return 0;
+  return (next.value - prev.value) / Math.max(1, next.time_ms - prev.time_ms);
+}
+
+function slopeFor(keys, i, side) {
+  const k = keys[i];
+  const mode = tangentMode(k, side);
+  if (mode === 'flat' || mode === 'step') return 0;
+  if (mode === 'linear') {
+    if (side === 'out' && keys[i + 1]) return linearSlope(k, keys[i + 1]);
+    if (side === 'in' && keys[i - 1]) return linearSlope(keys[i - 1], k);
+    return 0;
+  }
+  if (mode === 'manual') {
+    const h = k.tangent[side];
+    const dx = Math.max(1, h.dx || 120);
+    return side === 'in' ? -(h.dy || 0) / dx : (h.dy || 0) / dx;
+  }
+  return autoSlope(keys, i);
+}
+
+function hermite(a, b, m0, m1, t01) {
+  const dt = Math.max(1, b.time_ms - a.time_ms);
+  const t2 = t01 * t01, t3 = t2 * t01;
+  return (2 * t3 - 3 * t2 + 1) * a.value
+    + (t3 - 2 * t2 + t01) * dt * m0
+    + (-2 * t3 + 3 * t2) * b.value
+    + (t3 - t2) * dt * m1;
+}
+
 function poseAtTime(p, t) {
   const out = {};
   JOINT_IDS.forEach(jid => {
@@ -62,8 +106,8 @@ function poseAtTime(p, t) {
     const a = keys[i], b = keys[i + 1];
     const span = b.time_ms - a.time_ms || 1;
     const t01 = (t - a.time_ms) / span;
-    const ease = (INTERP[a.interp] || INTERP.linear).ease;
-    out[jid] = a.value + (b.value - a.value) * ease(t01);
+    if (tangentMode(a, 'out') === 'step') { out[jid] = a.value; return; }
+    out[jid] = Math.max(-100, Math.min(100, hermite(a, b, slopeFor(keys, i, 'out'), slopeFor(keys, i + 1, 'in'), t01)));
   });
   return out;
 }
@@ -91,14 +135,16 @@ function patternToYaml(p) {
   let y = `name: ${p.name}\n`;
   y += `id: ${p.id}\n`;
   y += `description: "${p.desc}"\n`;
-  y += `default_interp: ${p.defaultInterp}\n`;
   y += `tracks:\n`;
   JOINT_IDS.forEach(jid => {
     y += `  ${jid}:\n`;
     sortedTrack(p.tracks[jid]).forEach(k => {
       y += `    - time_ms: ${k.time_ms}\n`;
       y += `      value: ${k.value}\n`;
-      y += `      interp: ${k.interp}\n`;
+      y += `      tangent:\n`;
+      y += `        in: { mode: ${tangentMode(k, 'in')}, dx: ${k.tangent.in.dx}, dy: ${k.tangent.in.dy} }\n`;
+      y += `        out: { mode: ${tangentMode(k, 'out')}, dx: ${k.tangent.out.dx}, dy: ${k.tangent.out.dy} }\n`;
+      y += `        broken: ${!!k.tangent.broken}\n`;
     });
   });
   return y;
@@ -111,7 +157,7 @@ const GRAPH_COLORS = {
   upper_pitch: '#ff6b9a',
 };
 
-function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, onSelectTime, onEditKey }) {
+function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, onSelectTime, onEditKey, onEditTangent, onPreset }) {
   const [lockTime, setLockTime] = React.useState(false);
   const [lockValue, setLockValue] = React.useState(false);
   const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
@@ -163,13 +209,41 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
     }
     return d;
   };
+  const selectedAxisKeys = pointJoints.flatMap(jid => sortedTrack(p.tracks[jid])
+    .filter(k => k.time_ms === selTime && (!pickActive || pickJoints[jid]))
+    .map(k => ({ jid, k, keys: sortedTrack(p.tracks[jid]), index: sortedTrack(p.tracks[jid]).findIndex(x => x.id === k.id) })));
+  const handleFor = (keys, index, side) => {
+    const k = keys[index];
+    if (side === 'in' && index <= 0) return null;
+    if (side === 'out' && index >= keys.length - 1) return null;
+    const mode = tangentMode(k, side);
+    if (mode === 'step' && side === 'out') return null;
+    const neighbor = side === 'in' ? keys[index - 1] : keys[index + 1];
+    const maxDx = Math.max(20, Math.min(600, Math.abs(neighbor.time_ms - k.time_ms) * 0.45));
+    const dx = mode === 'manual' ? Math.max(20, Math.min(maxDx, k.tangent[side].dx || 120)) : maxDx;
+    const slope = slopeFor(keys, index, side);
+    const dy = side === 'in' ? -slope * dx : slope * dx;
+    return {
+      x: xFromTime(side === 'in' ? k.time_ms - dx : k.time_ms + dx),
+      y: yFromValue(k.value + dy),
+      dx,
+      dy,
+    };
+  };
   const startDrag = (e, jid, k) => {
     e.stopPropagation();
     if (pickActive && !pickJoints[jid]) return;
     onSelectTime(k.time_ms);
     if (lockTime && lockValue) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { jid, id: k.id, pointerId: e.pointerId, time_ms: k.time_ms, value: k.value, duration: Math.max(viewDur, k.time_ms, 1) };
+    dragRef.current = { type: 'key', jid, id: k.id, pointerId: e.pointerId, time_ms: k.time_ms, value: k.value, duration: Math.max(viewDur, k.time_ms, 1) };
+    setDragging(true);
+  };
+  const startHandleDrag = (e, jid, k, side) => {
+    e.stopPropagation();
+    onSelectTime(k.time_ms);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { type: 'handle', jid, id: k.id, side, pointerId: e.pointerId, time_ms: k.time_ms, value: k.value };
     setDragging(true);
   };
   const moveDrag = e => {
@@ -177,6 +251,14 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
     if (!drag || drag.pointerId !== e.pointerId) return;
     e.preventDefault();
     const pt = pointFromEvent(e);
+    if (drag.type === 'handle') {
+      const rawDx = Math.abs(((pt.x / W) * viewDur) - drag.time_ms);
+      const dx = Math.max(20, Math.min(600, rawDx));
+      const valueAtHandle = valueFromY(pt.y);
+      const dy = valueAtHandle - drag.value;
+      onEditTangent(drag.jid, drag.id, drag.side, dx, dy);
+      return;
+    }
     const rawTime = (pt.x / W) * drag.duration;
     const time_ms = lockTime ? drag.time_ms : resolveAxisTime(drag.jid, drag.id, rawTime, drag.duration);
     const value = lockValue ? drag.value : Math.round(valueFromY(pt.y) * 10) / 10;
@@ -192,11 +274,11 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
   const toolDefs = [
     { icon: 'lockTime', title: '시간축 잠금', active: lockTime, onClick: () => setLockTime(v => !v) },
     { icon: 'lockValue', title: '모션축 잠금', active: lockValue, onClick: () => setLockValue(v => !v) },
-    { icon: 'frame', title: '전체 커브 보기', disabled: true },
-    { icon: 'key', title: '키 선택 도구', disabled: true },
-    { icon: 'tangent', title: '자동 탄젠트', disabled: true },
-    { icon: 'flat', title: '플랫 탄젠트', disabled: true },
-    { icon: 'step', title: '스텝 탄젠트', disabled: true },
+    { icon: 'tangent', title: 'Auto tangent', onClick: () => onPreset('auto') },
+    { icon: 'flat', title: 'Flat tangent', onClick: () => onPreset('flat') },
+    { icon: 'frame', title: 'Linear tangent', onClick: () => onPreset('linear') },
+    { icon: 'step', title: 'Stepped tangent', onClick: () => onPreset('step') },
+    { icon: 'key', title: 'Break tangent', onClick: () => onPreset('break') },
   ];
 
   return (
@@ -252,6 +334,24 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
                 <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.value)}`}</title>
               </circle>
             )))}
+            {selectedAxisKeys.map(({ jid, k, keys, index }) => ['in', 'out'].map(side => {
+              const h = handleFor(keys, index, side);
+              if (!h) return null;
+              const x = xFromTime(k.time_ms), y = yFromValue(k.value);
+              return (
+                <g key={`${jid}-${k.id}-${side}`} className="graph-handle">
+                  <line className="graph-handle-line" x1={x} y1={y} x2={h.x} y2={h.y} style={{ stroke: GRAPH_COLORS[jid] }} />
+                  <circle className="graph-handle-dot" cx={h.x} cy={h.y} r="4"
+                    style={{ fill: GRAPH_COLORS[jid] }}
+                    onPointerDown={e => startHandleDrag(e, jid, k, side)}
+                    onPointerMove={moveDrag}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}>
+                    <title>{`${jid} ${side} tangent`}</title>
+                  </circle>
+                </g>
+              );
+            }))}
             <line className="graph-playhead" x1={xFromTime(t)} x2={xFromTime(t)} y1="0" y2={H} />
           </svg>
         </div>
@@ -384,7 +484,7 @@ function TabMotion() {
     if (!poseClipboard) return;
     let tracks = cloneTracks(p.tracks);
     targetAxes.forEach(jid => {
-      tracks = upsertAxisKey(tracks, jid, newAxisKey(time_ms, poseClipboard.joints[jid], p.defaultInterp));
+      tracks = upsertAxisKey(tracks, jid, newAxisKey(time_ms, poseClipboard.joints[jid]));
     });
     updateTracks(tracks, time_ms);
     Store.pushLog('ok', 'studio', `복사 자세 ${targetAxes.length}축 키 생성 @ ${time_ms}ms`);
@@ -395,6 +495,35 @@ function TabMotion() {
     const tracks = cloneTracks(p.tracks);
     tracks[jid] = sortedTrack(tracks[jid]).map(k => k.id === id ? { ...k, time_ms, value } : k).sort((a, b) => a.time_ms - b.time_ms);
     updateTracks(tracks, time_ms);
+  };
+  const updateTangent = (jid, id, side, dx, dy) => {
+    const tracks = cloneTracks(p.tracks);
+    tracks[jid] = sortedTrack(tracks[jid]).map(k => {
+      if (k.id !== id) return k;
+      const tangent = { in: { ...k.tangent.in }, out: { ...k.tangent.out }, broken: !!k.tangent.broken };
+      tangent[side] = { mode: 'manual', dx, dy };
+      if (!tangent.broken) {
+        const other = side === 'in' ? 'out' : 'in';
+        tangent[other] = { mode: 'manual', dx, dy: -dy };
+      }
+      return { ...k, tangent };
+    });
+    updateTracks(tracks, selTime);
+  };
+  const applyTangentPreset = (mode) => {
+    if (!selSlot) return;
+    const axes = editAxes.length ? editAxes.filter(id => selSlot.keys[id]) : JOINT_IDS.filter(id => selSlot.keys[id]);
+    if (!axes.length) return;
+    const tracks = cloneTracks(p.tracks);
+    axes.forEach(jid => {
+      tracks[jid] = sortedTrack(tracks[jid]).map(k => {
+        if (k.time_ms !== selSlot.time_ms) return k;
+        if (mode === 'break') return { ...k, tangent: { in: { ...k.tangent.in }, out: { ...k.tangent.out }, broken: !k.tangent.broken } };
+        return { ...k, tangent: defaultTangent(mode) };
+      });
+    });
+    updateTracks(tracks, selSlot.time_ms);
+    Store.pushLog('cmd', 'studio', `${axes.length}축 tangent ${mode} 적용 @ ${selSlot.time_ms}ms`);
   };
   const updateSlotTime = (fromTime, toTime) => {
     const tracks = cloneTracks(p.tracks);
@@ -413,7 +542,7 @@ function TabMotion() {
   const addAxisToSlot = (jid) => {
     if (!selSlot) return;
     let tracks = cloneTracks(p.tracks);
-    tracks = upsertAxisKey(tracks, jid, newAxisKey(selSlot.time_ms, selectedPose[jid], p.defaultInterp));
+    tracks = upsertAxisKey(tracks, jid, newAxisKey(selSlot.time_ms, selectedPose[jid]));
     updateTracks(tracks, selSlot.time_ms);
   };
   const removeAxisFromSlot = (time_ms, jid) => {
@@ -426,7 +555,7 @@ function TabMotion() {
   const captureHere = () => {
     let tracks = cloneTracks(p.tracks);
     targetAxes.forEach(jid => {
-      tracks = upsertAxisKey(tracks, jid, newAxisKey(Math.round(t), Store.state.joints[jid], p.defaultInterp));
+      tracks = upsertAxisKey(tracks, jid, newAxisKey(Math.round(t), Store.state.joints[jid]));
     });
     updateTracks(tracks, Math.round(t));
     Store.pushLog('ok', 'studio', `현재 자세 ${targetAxes.length}축 캡처 @ ${Math.round(t)}ms`);
@@ -442,9 +571,9 @@ function TabMotion() {
     const id = 'pat_' + Math.random().toString(36).slice(2, 6);
     const tracks = emptyTracks();
     JOINT_IDS.forEach(jid => {
-      tracks[jid] = [newAxisKey(0, 0, 'ease_in_out'), newAxisKey(1500, 0, 'ease_in_out')];
+      tracks[jid] = [newAxisKey(0, 0), newAxisKey(1500, 0)];
     });
-    Store.set({ patterns: [...s.patterns, { id, name: '새 패턴', desc: '', defaultInterp: 'ease_in_out', tracks }], editingPatternId: id });
+    Store.set({ patterns: [...s.patterns, { id, name: '새 패턴', desc: '', tracks }], editingPatternId: id });
     setSelTime(0); setT(0); setPoseClipboard(null);
   };
   const startAxisDrag = (e, jid, k) => {
@@ -513,11 +642,6 @@ function TabMotion() {
           <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
             <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
             <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력..." onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
-            <div className="field"><label>기본 보간</label>
-              <select className="ninput" value={p.defaultInterp} onChange={e => Store.updatePattern(p.id, { defaultInterp: e.target.value })}>
-                {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} - {INTERP[k].kr}</option>)}
-              </select>
-            </div>
             <button className="yaml-toggle" onClick={() => setShowYaml(v => !v)}>YAML 원문 {showYaml ? '접기' : '보기'}</button>
             {showYaml && <pre className="yaml motion-yaml">{patternToYaml(p)}</pre>}
           </Panel>
@@ -608,7 +732,7 @@ function TabMotion() {
                   <div className="field">
                     <label>포함 축</label>
                     <div className="axis-chip-row static">
-                      {JOINT_IDS.filter(id => selSlot?.keys[id]).map(id => <span key={id} className="axis-chip text" style={{ color: GRAPH_COLORS[id] }}><i style={{ background: GRAPH_COLORS[id] }}></i>{id.replace('_', '.')}</span>)}
+                      {JOINT_IDS.filter(id => selSlot?.keys[id]).map(id => <span key={id} className="axis-chip text" style={{ color: GRAPH_COLORS[id] }}><i style={{ background: GRAPH_COLORS[id] }}></i>{id.replace('_', '.')} · {tangentMode(selSlot.keys[id], 'out')}</span>)}
                     </div>
                   </div>
                 </Panel>
@@ -658,7 +782,8 @@ function TabMotion() {
               </div>
             </div>
             <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selTime={selTime} showSnapGrid={showSnapGrid}
-              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} onSelectTime={selectTime} onEditKey={updateGraphKey} />
+              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} onSelectTime={selectTime} onEditKey={updateGraphKey}
+              onEditTangent={updateTangent} onPreset={applyTangentPreset} />
           </div>
         </div>
       </div>

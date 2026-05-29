@@ -51,7 +51,7 @@ function TabLibrary() {
         right={<div className="btn-row"><Btn kind="ghost" size="sm" icon="upload">가져오기</Btn><Btn kind="ghost" size="sm" icon="download">내보내기</Btn></div>}>
         <div className="scroll-y" style={{ height: '100%' }}>
           <table className="tbl">
-            <thead><tr><th>이름</th><th>설명</th><th className="num">길이</th><th className="num">KF</th><th>보간</th><th className="num">수정</th><th></th></tr></thead>
+            <thead><tr><th>이름</th><th>설명</th><th className="num">길이</th><th className="num">축 키</th><th>Tangent</th><th className="num">수정</th><th></th></tr></thead>
             <tbody>
               {s.patterns.map(p => (
                 <tr key={p.id} onClick={() => setSelId(p.id)} style={{ cursor: 'pointer', background: p.id === selId ? 'var(--cy-dim)' : null }}>
@@ -59,7 +59,7 @@ function TabLibrary() {
                   <td style={{ fontFamily: 'var(--kr)', color: 'var(--tx-2)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.desc || '—'}</td>
                   <td className="num">{(Store.patternDuration(p) / 1000).toFixed(1)}s</td>
                   <td className="num">{Store.trackKeyCount(p)}</td>
-                  <td style={{ fontSize: 10 }}>{INTERP[p.defaultInterp].kr}</td>
+                  <td style={{ fontSize: 10 }}>Curve</td>
                   <td className="num" style={{ fontSize: 10, color: 'var(--tx-3)' }}>방금</td>
                   <td><div className="row gap8">
                     <button className="btn solid sm" style={{ padding: '3px 8px' }} onClick={e => { e.stopPropagation(); runIt(p.id); }}><Icon name="bolt" /></button>
@@ -88,7 +88,7 @@ function TabLibrary() {
           <div className="row" style={{ gap: 18 }}>
             <Stat k="길이" v={(Store.patternDuration(sel) / 1000).toFixed(1)} unit="s" />
             <Stat k="축 키" v={Store.trackKeyCount(sel)} unit="개" />
-            <Stat k="보간" v={INTERP[sel.defaultInterp].kr} />
+            <Stat k="커브" v="Tangent" />
           </div>
           <div className="btn-row" style={{ marginTop: 4 }}>
             <Btn kind="solid" icon="bolt" onClick={() => runIt(sel.id)}>바로 실행</Btn>

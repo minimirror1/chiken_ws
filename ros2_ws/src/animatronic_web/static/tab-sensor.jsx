@@ -119,7 +119,7 @@ function TabSensor() {
                 <div key={p.id} className={`kf-item ${on ? 'sel' : ''}`} style={{ gridTemplateColumns: '1fr auto' }} onClick={() => toggleTrig(p.id)}>
                   <div className="info">
                     <div className="tm" style={{ fontFamily: 'var(--kr)', fontSize: 12.5 }}>{p.name}</div>
-                    <div className="jv">{(Store.patternDuration(p) / 1000).toFixed(1)}s · {Store.trackKeyCount(p)} axis keys · {INTERP[p.defaultInterp].kr}</div>
+                    <div className="jv">{(Store.patternDuration(p) / 1000).toFixed(1)}s · {Store.trackKeyCount(p)} axis keys · Tangent</div>
                   </div>
                   <Dot kind={on ? 'cy' : 'off'} />
                 </div>
