@@ -6,6 +6,46 @@
 const V_CY = 0x3fc7d4;
 const V_ERR = 0xe65f50;
 
+const CHICKEN_THEME = {
+  black: {
+    body: 0x2b333b,
+    dark: 0x1a1f24,
+    joint: 0x39434c,
+    accent: 0x46505a,
+    beak: 0x46505a,
+    comb: 0x46505a,
+    wattle: 0x46505a,
+    eye: V_CY,
+  },
+  white: {
+    body: 0xf4f1e8,
+    dark: 0xd8d6cc,
+    joint: 0x8a8f94,
+    accent: 0xc8c5ba,
+    beak: 0xe2a83a,
+    comb: 0xc7352e,
+    wattle: 0xc7352e,
+    eye: 0x151515,
+  },
+};
+
+function applyChickenTheme(rig, themeName) {
+  const theme = CHICKEN_THEME[themeName] || CHICKEN_THEME.black;
+  const white = themeName === 'white';
+  Object.entries(theme).forEach(([name, color]) => {
+    const mat = rig.materials[name];
+    if (!mat) return;
+    mat.color.setHex(color);
+    if (mat.emissive) mat.emissive.setHex(name === 'eye' ? color : 0x000000);
+    if (name !== 'axis' && name !== 'eye') {
+      mat.metalness = white ? 0.18 : mat.userData.baseMetalness;
+      mat.roughness = white ? 0.72 : mat.userData.baseRoughness;
+    }
+  });
+  rig.materials.axis.color.setHex(V_CY);
+  rig.materials.axis.emissive.setHex(V_CY);
+}
+
 function buildRig() {
   const THREE = window.THREE;
   const root = new THREE.Group();
@@ -15,6 +55,13 @@ function buildRig() {
   const matJoint = new THREE.MeshStandardMaterial({ color: 0x39434c, metalness: 0.85, roughness: 0.3 });
   const matAxis = new THREE.MeshStandardMaterial({ color: V_CY, emissive: V_CY, emissiveIntensity: 0.6, metalness: 0.4, roughness: 0.3 });
   const matAccent = new THREE.MeshStandardMaterial({ color: 0x46505a, metalness: 0.7, roughness: 0.4 });
+  const matBeak = new THREE.MeshStandardMaterial({ color: 0x46505a, metalness: 0.7, roughness: 0.4 });
+  const matComb = new THREE.MeshStandardMaterial({ color: 0x46505a, metalness: 0.7, roughness: 0.4 });
+  const matWattle = new THREE.MeshStandardMaterial({ color: 0x46505a, metalness: 0.7, roughness: 0.4 });
+  [matBody, matDark, matJoint, matAxis, matAccent, matBeak, matComb, matWattle].forEach(mat => {
+    mat.userData.baseMetalness = mat.metalness;
+    mat.userData.baseRoughness = mat.roughness;
+  });
 
   // ---- base pedestal ----
   const base = new THREE.Group();
@@ -91,10 +138,10 @@ function buildRig() {
   skull.position.z = 0.06; skull.position.y = 0.12; skull.castShadow = true;
   head.add(skull);
   // beak (forward +Z)
-  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.34, 6), matAccent);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.34, 6), matBeak);
   beak.rotation.x = Math.PI / 2; beak.position.set(0, 0.06, 0.42);
   head.add(beak);
-  const beakLo = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.22, 6), matDark);
+  const beakLo = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.22, 6), matBeak);
   beakLo.rotation.x = Math.PI / 2; beakLo.position.set(0, -0.02, 0.36);
   head.add(beakLo);
   // eyes (cyan sensor lenses)
@@ -105,23 +152,35 @@ function buildRig() {
   });
   // comb (3 fins on top)
   for (let i = 0; i < 3; i++) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1 - i * 0.012, 0.1), matAccent);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.1 - i * 0.012, 0.1), matComb);
     fin.position.set(0, 0.3, 0.04 - i * 0.11); head.add(fin);
   }
   // wattle
-  const wattle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.05), matAccent);
+  const wattle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.05), matWattle);
   wattle.position.set(0, -0.08, 0.34); head.add(wattle);
   upperPitch.add(head);
 
   return { root, lowerYaw, lowerPitch, upperYaw, upperPitch, head,
-    parts: [matAxis], discs: { lower_yaw: lyDisc, lower_pitch: lpDisc, upper_yaw: uyDisc, upper_pitch: upDisc } };
+    parts: [matAxis],
+    materials: { body: matBody, dark: matDark, joint: matJoint, axis: matAxis, accent: matAccent, beak: matBeak, comb: matComb, wattle: matWattle, eye: eyeMat },
+    discs: { lower_yaw: lyDisc, lower_pitch: lpDisc, upper_yaw: uyDisc, upper_pitch: upDisc } };
 }
 
-function Chicken3DViewer({ getJoints, interactive = true, autoRotate = false, warnLimits = false, dim = false }) {
+function Chicken3DViewer({ getJoints, interactive = true, autoRotate = false, warnLimits = false, dim = false, theme = 'black', sunLight = false }) {
   const mountRef = React.useRef(null);
   const stateRef = React.useRef({});
   const getJointsRef = React.useRef(getJoints);
   getJointsRef.current = getJoints;
+
+  React.useEffect(() => {
+    if (stateRef.current.rig) applyChickenTheme(stateRef.current.rig, theme);
+  }, [theme]);
+
+  React.useEffect(() => {
+    if (!stateRef.current.sun) return;
+    stateRef.current.sun.visible = sunLight;
+    stateRef.current.sunMarker.visible = sunLight;
+  }, [sunLight]);
 
   React.useEffect(() => {
     const THREE = window.THREE;
@@ -146,6 +205,15 @@ function Chicken3DViewer({ getJoints, interactive = true, autoRotate = false, wa
     const rim = new THREE.DirectionalLight(V_CY, 0.5);
     rim.position.set(-4, 2, -3); scene.add(rim);
     const fill = new THREE.PointLight(0x4a90a0, 0.4, 12); fill.position.set(0, 3, -4); scene.add(fill);
+    const sun = new THREE.DirectionalLight(0xffd58a, 1.45);
+    sun.position.set(-3.2, 5.6, 2.4); sun.castShadow = true; sun.visible = sunLight;
+    sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.near = 1; sun.shadow.camera.far = 20;
+    sun.shadow.camera.left = -4; sun.shadow.camera.right = 4; sun.shadow.camera.top = 4; sun.shadow.camera.bottom = -4;
+    scene.add(sun);
+    const sunMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.11, 18, 18),
+      new THREE.MeshBasicMaterial({ color: 0xffd58a, transparent: true, opacity: 0.92 }));
+    sunMarker.position.set(-1.8, 3.25, 1.35); sunMarker.visible = sunLight; scene.add(sunMarker);
 
     // ground grid
     const grid = new THREE.GridHelper(10, 30, 0x2b343d, 0x1a2026);
@@ -156,6 +224,7 @@ function Chicken3DViewer({ getJoints, interactive = true, autoRotate = false, wa
     floor.rotation.x = -Math.PI / 2; floor.position.y = -0.001; floor.receiveShadow = true; scene.add(floor);
 
     const rig = buildRig();
+    applyChickenTheme(rig, theme);
     scene.add(rig.root);
 
     // orbit state
@@ -225,7 +294,7 @@ function Chicken3DViewer({ getJoints, interactive = true, autoRotate = false, wa
     }
     frame();
 
-    stateRef.current = { renderer, scene };
+    stateRef.current = { renderer, scene, rig, sun, sunMarker };
     return () => {
       cancelAnimationFrame(raf); ro.disconnect();
       if (interactive) {

@@ -150,11 +150,13 @@ function JointSlider({ jid, value, onChange, compact }) {
 // ---- viewer frame with HUD overlay ----
 function ViewerFrame({ getJoints, interactive = true, autoRotate = false, warnLimits = true, label = 'LIVE POSE', children }) {
   const s = useStore();
+  const [modelTheme, setModelTheme] = React.useState('black');
+  const [sunLight, setSunLight] = React.useState(false);
   const j = getJoints ? getJoints() : s.joints;
   const over = JOINT_IDS.some(id => isOverSoft(id, j[id]));
   return (
     <div className="viewer">
-      <Chicken3DViewer getJoints={getJoints} interactive={interactive} autoRotate={autoRotate} warnLimits={warnLimits} />
+      <Chicken3DViewer getJoints={getJoints} interactive={interactive} autoRotate={autoRotate} warnLimits={warnLimits} theme={modelTheme} sunLight={sunLight} />
       <div className="v-overlay">
         <span className="v-corner tl"></span><span className="v-corner tr"></span>
         <span className="v-corner bl"></span><span className="v-corner br"></span>
@@ -166,6 +168,17 @@ function ViewerFrame({ getJoints, interactive = true, autoRotate = false, warnLi
           {JOINT_IDS.map(id => (
             <div key={id}>{id.replace('_', '·')} <span className="hl">{valToDeg(id, j[id]).toFixed(0)}°</span></div>
           ))}
+        </div>
+        <div className="v-theme-toggle" aria-label="3D model color theme">
+          <button type="button" className={modelTheme === 'black' ? 'on' : ''} onClick={() => setModelTheme('black')} title="Black chicken theme">
+            <i className="black"></i><span>BLACK</span>
+          </button>
+          <button type="button" className={modelTheme === 'white' ? 'on' : ''} onClick={() => setModelTheme('white')} title="White chicken theme">
+            <i className="white"></i><span>WHITE</span>
+          </button>
+          <button type="button" className={sunLight ? 'on sun' : 'sun'} onClick={() => setSunLight(v => !v)} title="Sun light on/off">
+            <i className="sun"></i><span>SUN</span>
+          </button>
         </div>
         {over && <div className="v-warn">⚠ SOFT LIMIT 초과 — 기구 간섭 위험</div>}
         {children}
