@@ -546,6 +546,16 @@ function TabMotion() {
     tracks = upsertAxisKey(tracks, jid, newAxisKey(selSlot.time_ms, selectedPose[jid]));
     updateTracks(tracks, selSlot.time_ms);
   };
+  const addAxisKeyAt = (jid, time_ms) => {
+    const rawTime = Math.max(0, Math.min(Math.max(dur, time_ms, 1), Math.round(time_ms)));
+    const existingAtClick = sortedTrack(p.tracks[jid]).find(k => k.time_ms === rawTime);
+    if (existingAtClick) { selectTime(rawTime); return; }
+    const nt = resolveAxisTime(jid, null, rawTime, Math.max(dur, rawTime, 1));
+    let tracks = cloneTracks(p.tracks);
+    tracks = upsertAxisKey(tracks, jid, newAxisKey(nt, poseAtTime(p, nt)[jid]));
+    updateTracks(tracks, nt);
+    Store.pushLog('ok', 'studio', `${jid} 축 키 생성 @ ${nt}ms`);
+  };
   const removeAxisFromSlot = (time_ms, jid) => {
     const slot = slots.find(sl => sl.time_ms === time_ms);
     if (!slot || Object.keys(slot.keys).length <= 1) return;
@@ -761,7 +771,9 @@ function TabMotion() {
                   {JOINTS.map(j => (
                     <div key={j.id} className="axis-track-row">
                       <div className="axis-track-label" style={{ color: GRAPH_COLORS[j.id] }}>{j.kr}</div>
-                      <div className="axis-track" ref={el => { axisTrackRefs.current[j.id] = el; }} onClick={e => { const nt = timeFromTrackClick(e, viewDur); if (poseClipboard) pastePoseAt(nt); else scrub(nt); }}>
+                      <div className="axis-track" ref={el => { axisTrackRefs.current[j.id] = el; }}
+                        onClick={e => { const nt = timeFromTrackClick(e, viewDur); if (poseClipboard) pastePoseAt(nt); else scrub(nt); }}
+                        onDoubleClick={e => { e.preventDefault(); const nt = timeFromTrackClick(e, viewDur); if (poseClipboard) pastePoseAt(nt); else addAxisKeyAt(j.id, nt); }}>
                         <div className="tl-snap-grid">
                           {snapTicks.map(tm => (
                             <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
@@ -773,6 +785,7 @@ function TabMotion() {
                             onPointerMove={e => moveAxisDrag(e, j.id, k)}
                             onPointerUp={e => endAxisDrag(e, k)}
                             onPointerCancel={e => endAxisDrag(e, k)}
+                            onDoubleClick={e => e.stopPropagation()}
                             onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectTime(k.time_ms); }} title={`${j.id} ${k.time_ms}ms`}></div>
                         ))}
                       </div>
