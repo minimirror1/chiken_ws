@@ -63,6 +63,7 @@ function TabMotion() {
   const [showYaml, setShowYaml] = React.useState(false);
   const [verifyRes, setVerifyRes] = React.useState(null);
   const [draggingKfId, setDraggingKfId] = React.useState(null);
+  const [poseClipboard, setPoseClipboard] = React.useState(null);
   const rafRef = React.useRef();
   const playRef = React.useRef();
   const trackRef = React.useRef();
@@ -86,6 +87,17 @@ function TabMotion() {
     rafRef.current = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafRef.current);
   }, [playing]);
+
+  React.useEffect(() => {
+    if (!poseClipboard) return;
+    const cancelPaste = (e) => {
+      if (e.key !== 'Escape') return;
+      setPoseClipboard(null);
+      Store.pushLog('info', 'studio', '자세 복사 배치 취소');
+    };
+    window.addEventListener('keydown', cancelPaste);
+    return () => window.removeEventListener('keydown', cancelPaste);
+  }, [poseClipboard]);
 
   const scrub = (nt) => {
     setT(nt); setPlaying(false);
@@ -116,7 +128,7 @@ function TabMotion() {
     const kfs = p.keyframes.map(k => k.id === id ? { ...k, time_ms } : k).sort((a, b) => a.time_ms - b.time_ms);
     Store.updatePattern(p.id, { keyframes: kfs });
   };
-  const resolveDragTime = (id, rawTime, span) => {
+  const resolveTimeSlot = (id, rawTime, span) => {
     const step = 50;
     const minGap = 30;
     const max = Math.max(0, Math.round(span));
@@ -138,11 +150,38 @@ function TabMotion() {
     if (!drag || !track) return 0;
     const r = track.getBoundingClientRect();
     const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    return resolveDragTime(drag.id, (x / Math.max(1, r.width)) * drag.duration, drag.duration);
+    return resolveTimeSlot(drag.id, (x / Math.max(1, r.width)) * drag.duration, drag.duration);
+  };
+  const timeFromTrackClick = (e, span) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    return resolveTimeSlot(null, (x / Math.max(1, r.width)) * span, span);
+  };
+  const copyPose = (e, k, i) => {
+    e.stopPropagation();
+    setPoseClipboard({ sourceIndex: i + 1, sourceTime: k.time_ms, joints: { ...k.joints } });
+    Store.pushLog('cmd', 'studio', `KF ${i + 1} 자세 복사 — 붙여넣을 타임라인 위치 선택`);
+  };
+  const pastePoseAt = (time_ms) => {
+    if (!poseClipboard) return;
+    const k = { id: 'k' + Math.random().toString(36).slice(2, 8), time_ms, joints: { ...poseClipboard.joints }, interp: p.defaultInterp };
+    const kfs = [...p.keyframes, k].sort((a, b) => a.time_ms - b.time_ms);
+    Store.updatePattern(p.id, { keyframes: kfs });
+    setSelId(k.id);
+    setT(k.time_ms);
+    Store.state.joints = { ...k.joints }; Store.emit();
+    Store.pushLog('ok', 'studio', `복사 자세 키프레임 생성 @ ${k.time_ms}ms`);
+    setPoseClipboard(null);
+  };
+  const handleTimelineClick = (e) => {
+    const nt = timeFromTrackClick(e, viewDur);
+    if (poseClipboard) { pastePoseAt(nt); return; }
+    scrub(nt);
   };
   const startKfDrag = (e, k) => {
     e.stopPropagation();
     if (playing) { setPlaying(false); Store.set({ playing: false }); }
+    if (poseClipboard) setPoseClipboard(null);
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { id: k.id, pointerId: e.pointerId, duration: Math.max(dur, k.time_ms, 1) };
     suppressClickRef.current = false;
@@ -210,7 +249,7 @@ function TabMotion() {
       <div className="row center" style={{ gap: 12, padding: '10px 14px', borderBottom: '1px solid var(--line-1)', background: 'var(--bg-1)', flexWrap: 'wrap' }}>
         <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <label style={{ margin: 0 }}>패턴</label>
-          <select className="ninput" style={{ width: 200 }} value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); setSelId(np.keyframes[0]?.id); setT(0); }}>
+          <select className="ninput" style={{ width: 200 }} value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); setSelId(np.keyframes[0]?.id); setT(0); setPoseClipboard(null); }}>
             {s.patterns.map(pp => <option key={pp.id} value={pp.id}>{pp.name}</option>)}
           </select>
         </div>
@@ -243,7 +282,10 @@ function TabMotion() {
                       <div className="tm">{k.time_ms} <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>ms</span></div>
                       <div className="jv">{JOINT_IDS.map(id => k.joints[id]).join(' · ')} · {INTERP[k.interp].kr}</div>
                     </div>
-                    <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => { e.stopPropagation(); delKf(k); }}><Icon name="trash" /></button>
+                    <div className="row center" style={{ gap: 4 }}>
+                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => copyPose(e, k, i)} title="자세 복사"><Icon name="copy" /></button>
+                      <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => { e.stopPropagation(); delKf(k); }} title="삭제"><Icon name="trash" /></button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -262,13 +304,19 @@ function TabMotion() {
           </Panel>
 
           {/* timeline */}
-          <div className="timeline">
-            <div className="tl-ruler" onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * viewDur)); }}>
+          <div className={`timeline ${poseClipboard ? 'paste-mode' : ''}`}>
+            {poseClipboard && (
+              <div className="tl-paste-overlay">
+                <span>붙여넣을 시간 위치를 클릭하세요</span>
+                <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
+              </div>
+            )}
+            <div className="tl-ruler" onClick={handleTimelineClick}>
               {ticks.map(tm => (
                 <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
               ))}
             </div>
-            <div className="tl-track" ref={trackRef} onClick={e => { const r = e.currentTarget.getBoundingClientRect(); scrub(Math.round(((e.clientX - r.left) / r.width) * viewDur)); }}>
+            <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
               {p.keyframes.map(k => (
                 <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
                   onPointerDown={e => startKfDrag(e, k)}

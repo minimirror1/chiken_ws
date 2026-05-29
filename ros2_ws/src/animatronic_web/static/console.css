@@ -442,6 +442,16 @@ body {
 
 /* timeline */
 .timeline { position: relative; background: var(--bg-2); border: 1px solid var(--line-1); border-radius: var(--r); overflow: hidden; }
+.timeline.paste-mode { border-color: var(--cy-line); box-shadow: inset 0 0 0 1px var(--cy-dim); cursor: copy; }
+.timeline.paste-mode .tl-ruler,
+.timeline.paste-mode .tl-track { cursor: copy; }
+.tl-paste-overlay {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: rgba(8,12,18,.62); color: var(--tx-0); font-size: 11px;
+}
+.tl-paste-overlay span { color: var(--cy); font-family: var(--kr); }
+.tl-paste-overlay em { color: var(--tx-2); font-family: var(--mono); font-size: 9.5px; font-style: normal; }
 .tl-ruler { height: 22px; position: relative; border-bottom: 1px solid var(--line-1); background: var(--bg-1); }
 .tl-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-0); }
 .tl-tick span { position: absolute; top: 3px; left: 4px; font-family: var(--mono); font-size: 9px; color: var(--tx-3); }
