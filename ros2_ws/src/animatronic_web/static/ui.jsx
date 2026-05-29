@@ -22,6 +22,15 @@ const ICONS = {
   arrowR: 'M5 10h10m-4-4l4 4-4 4',
   bolt: 'M11 3L5 11h4l-1 6 6-8h-4z',
   eye: 'M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z M10 12a2 2 0 100-4 2 2 0 000 4z',
+  eyeOff: 'M3 3l14 14M6.5 6.5C4 7.8 2 10 2 10s3 5 8 5c1.2 0 2.3-.2 3.3-.6M9 5.1c.3 0 .7-.1 1-.1 5 0 8 5 8 5s-.8 1.4-2.1 2.7M8.6 8.6a2 2 0 002.8 2.8',
+  select: 'M5 4l8 7-4 1.2 2.1 4.1-2 1-2.1-4.1L4 16z',
+  lockTime: 'M4 10h12M10 4v12M7 7l3-3 3 3M7 13l3 3 3-3',
+  lockValue: 'M10 4v12M4 10h12M7 7l3 3-3 3M13 7l-3 3 3 3',
+  frame: 'M5 7V5h4M15 7V5h-4M5 13v2h4M15 13v2h-4M7 10h6',
+  key: 'M5 10a3 3 0 116 0 3 3 0 01-6 0zM11 10h6m-2 0v3m-3-3v2',
+  tangent: 'M4 14c4-8 8-8 12 0M4 14h4M12 6h4',
+  flat: 'M4 10h12M6 8l-2 2 2 2M14 8l2 2-2 2',
+  step: 'M4 14h4V8h4V5h4',
 };
 function Icon({ name, className }) {
   const d = ICONS[name];
@@ -118,7 +127,7 @@ function JointSlider({ jid, value, onChange, compact }) {
   const over = isOverSoft(jid, value);
   const pct = (value + 100) / 2; // 0..100 for gradient
   return (
-    <div className={`jslider ${over ? 'warnlimit' : ''}`} style={compact ? { gridTemplateColumns: '78px 1fr 62px', padding: '6px 2px' } : null}>
+    <div className={`jslider ${compact ? 'compact' : ''} ${over ? 'warnlimit' : ''}`}>
       <div className="lab">
         <span className="nm">{jid}</span>
         <span className="kr">{j.kr}</span>
@@ -141,11 +150,13 @@ function JointSlider({ jid, value, onChange, compact }) {
 // ---- viewer frame with HUD overlay ----
 function ViewerFrame({ getJoints, interactive = true, autoRotate = false, warnLimits = true, label = 'LIVE POSE', children }) {
   const s = useStore();
+  const [modelTheme, setModelTheme] = React.useState('black');
+  const [sunLight, setSunLight] = React.useState(false);
   const j = getJoints ? getJoints() : s.joints;
   const over = JOINT_IDS.some(id => isOverSoft(id, j[id]));
   return (
     <div className="viewer">
-      <Chicken3DViewer getJoints={getJoints} interactive={interactive} autoRotate={autoRotate} warnLimits={warnLimits} />
+      <Chicken3DViewer getJoints={getJoints} interactive={interactive} autoRotate={autoRotate} warnLimits={warnLimits} theme={modelTheme} sunLight={sunLight} />
       <div className="v-overlay">
         <span className="v-corner tl"></span><span className="v-corner tr"></span>
         <span className="v-corner bl"></span><span className="v-corner br"></span>
@@ -157,6 +168,17 @@ function ViewerFrame({ getJoints, interactive = true, autoRotate = false, warnLi
           {JOINT_IDS.map(id => (
             <div key={id}>{id.replace('_', '·')} <span className="hl">{valToDeg(id, j[id]).toFixed(0)}°</span></div>
           ))}
+        </div>
+        <div className="v-theme-toggle" aria-label="3D model color theme">
+          <button type="button" className={modelTheme === 'black' ? 'on' : ''} onClick={() => setModelTheme('black')} title="Black chicken theme">
+            <i className="black"></i><span>BLACK</span>
+          </button>
+          <button type="button" className={modelTheme === 'white' ? 'on' : ''} onClick={() => setModelTheme('white')} title="White chicken theme">
+            <i className="white"></i><span>WHITE</span>
+          </button>
+          <button type="button" className={sunLight ? 'on sun' : 'sun'} onClick={() => setSunLight(v => !v)} title="Sun light on/off">
+            <i className="sun"></i><span>SUN</span>
+          </button>
         </div>
         {over && <div className="v-warn">⚠ SOFT LIMIT 초과 — 기구 간섭 위험</div>}
         {children}
