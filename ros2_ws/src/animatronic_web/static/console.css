@@ -79,7 +79,7 @@ body {
    ============================================================ */
 .app {
   display: grid;
-  grid-template-rows: 50px 52px minmax(0, 1fr) 26px;
+  grid-template-rows: 50px 30px minmax(0, 1fr) 26px;
   height: 100%;
 }
 
@@ -145,18 +145,18 @@ body {
 .tabs {
   display: flex; align-items: stretch;
   background: var(--bg-1);
-  height: 52px; min-height: 52px; max-height: 52px;
+  height: 30px; min-height: 30px; max-height: 30px;
 }
 .tab {
-  display: flex; align-items: center; gap: 9px;
-  height: 52px;
-  padding: 0 17px; cursor: pointer; position: relative;
+  display: flex; align-items: center; gap: 7px;
+  height: 30px;
+  padding: 0 12px; cursor: pointer; position: relative;
   border-right: 1px solid var(--line-0);
-  color: var(--tx-2); font-size: 12px; letter-spacing: .01em;
+  color: var(--tx-2); font-size: 11px; letter-spacing: .01em;
   transition: color .12s, background .12s;
   user-select: none;
 }
-.tab .idx { font-family: var(--mono); font-size: 10px; color: var(--tx-3); }
+.tab .idx { font-family: var(--mono); font-size: 9px; color: var(--tx-3); }
 .tab:hover { color: var(--tx-1); background: var(--bg-2); }
 .tab.active { color: var(--tx-0); background: var(--bg-2); }
 .tab.active .idx { color: var(--cy); }
@@ -463,6 +463,12 @@ body {
 }
 .motion-control-meta span { min-width: 0; white-space: nowrap; }
 .motion-control-meta b { color: var(--cy); font-weight: 700; }
+.yaml-toggle {
+  width: 100%; border: 1px solid var(--line-1); border-radius: 3px; background: var(--bg-2); color: var(--tx-2);
+  font-family: var(--mono); font-size: 10px; padding: 6px 8px; cursor: pointer; text-align: left;
+}
+.yaml-toggle:hover { border-color: var(--line-2); color: var(--tx-0); background: var(--bg-3); }
+.motion-yaml { max-height: 130px; font-size: 10px; line-height: 1.45; margin: 0; }
 .keyframe-run { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 6px; }
 .keyframe-run .btn { width: 100%; justify-content: center; min-width: 0; padding-left: 7px; padding-right: 7px; }
 .motion-lower { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-height: 0; }

@@ -441,6 +441,8 @@ function TabMotion() {
                 {Object.keys(INTERP).map(k => <option key={k} value={k}>{k} — {INTERP[k].kr}</option>)}
               </select>
             </div>
+            <button className="yaml-toggle" onClick={() => setShowYaml(v => !v)}>YAML 원문 {showYaml ? '접기' : '보기'}</button>
+            {showYaml && <pre className="yaml motion-yaml">{patternToYaml(p)}</pre>}
           </Panel>
 
           <Panel title="검증 결과" accent="VERIFY" className="flex1" bodyClass="scroll-y">
@@ -568,15 +570,6 @@ function TabMotion() {
           </div>
         </div>
 
-      </div>
-
-      {/* YAML drawer */}
-      <div style={{ borderTop: '1px solid var(--line-1)', background: 'var(--bg-1)' }}>
-        <div className="row center between" style={{ padding: '7px 14px', cursor: 'pointer' }} onClick={() => setShowYaml(v => !v)}>
-          <span className="mono up" style={{ fontSize: 10, color: 'var(--tx-2)' }}>▸ YAML 원문 {showYaml ? '접기' : '보기'}</span>
-          <span className="mono" style={{ fontSize: 10, color: 'var(--tx-3)' }}>고급 편집용</span>
-        </div>
-        {showYaml && <div style={{ maxHeight: 180, overflow: 'auto', padding: '0 14px 12px' }}><pre className="yaml">{patternToYaml(p)}</pre></div>}
       </div>
     </div>
   );
