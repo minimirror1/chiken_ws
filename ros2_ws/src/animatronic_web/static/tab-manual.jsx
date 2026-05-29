@@ -6,6 +6,7 @@ function TabManual() {
   const s = useStore();
   const [pending, setPending] = React.useState(null); // staged pose before "apply"
   const live = s.joints;
+  const actual = s.actualJoints || live;
   const view = pending || live;
 
   const setJ = (id, v) => {
@@ -64,8 +65,8 @@ function TabManual() {
 
       {/* CENTER — big 3D */}
       <Panel title="3D 관절 뷰어" accent="VIEWER" ticked bodyClass="pad-0" sub="drag 회전 · scroll 확대"
-        right={<span className="mono" style={{ fontSize: 10, color: 'var(--tx-2)' }}>{pending ? 'PREVIEW (미적용)' : 'SYNCED'}</span>}>
-        <ViewerFrame getJoints={() => view} interactive warnLimits label={pending ? 'PREVIEW POSE' : 'LIVE POSE'} />
+        right={<span className="mono" style={{ fontSize: 10, color: 'var(--tx-2)' }}>{pending ? 'PREVIEW (미적용)' : 'TARGET'}</span>}>
+        <ViewerFrame getJoints={() => view} interactive warnLimits label={pending ? 'PREVIEW POSE' : 'TARGET POSE'} />
       </Panel>
 
       {/* RIGHT — readouts */}
@@ -74,15 +75,25 @@ function TabManual() {
           {JOINT_IDS.map(id => {
             const m = s.motors[id];
             const over = isOverSoft(id, view[id]);
+            const targetDeg = valToDeg(id, view[id]);
+            const actualValue = actual[id] !== undefined ? actual[id] : 0;
+            const actualDeg = valToDeg(id, actualValue);
+            const errValue = view[id] - actualValue;
+            const errAbs = Math.abs(errValue);
+            const errColor = errAbs >= 10 ? 'var(--err)' : (errAbs >= 3 ? 'var(--warn)' : 'var(--tx-3)');
             return (
               <div key={id} style={{ padding: '9px 0', borderBottom: '1px dashed var(--line-0)' }}>
                 <div className="row between center" style={{ marginBottom: 5 }}>
                   <span className="mono" style={{ fontSize: 11, color: over ? 'var(--warn)' : 'var(--tx-0)' }}>{id}</span>
-                  <span className="mono tnum" style={{ fontSize: 14, color: over ? 'var(--warn)' : 'var(--cy)' }}>{valToDeg(id, view[id]).toFixed(1)}°</span>
+                  <span className="mono tnum" style={{ fontSize: 14, color: over ? 'var(--warn)' : 'var(--cy)' }}>{targetDeg.toFixed(1)}°</span>
                 </div>
                 <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--tx-3)', marginBottom: 5 }}>
                   <span>raw {valToRaw(id, view[id])}</span>
-                  <span>목표 {view[id]} / 현재 {live[id]}</span>
+                  <span>목표 {view[id]} / 실제 {actualValue}</span>
+                </div>
+                <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: errColor, marginBottom: 5 }}>
+                  <span>actual {actualDeg.toFixed(1)}°</span>
+                  <span>err {errValue > 0 ? '+' : ''}{errValue.toFixed(0)}%</span>
                 </div>
                 <MBar value={Math.abs(view[id])} max={100} kind={over ? 'warn' : ''} />
                 <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--tx-3)', marginTop: 4 }}>

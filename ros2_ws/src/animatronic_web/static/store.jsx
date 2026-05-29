@@ -89,6 +89,7 @@ const Store = {
     mode: 'detect',                    // detect | random | test | stop
     torque: true,
     joints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 },
+    actualJoints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 },
     target: null,                      // commanded target pose (for slow-move readout)
     moveSpeed: 'instant',              // instant | slow
     activePattern: 'idle_breathe',
@@ -206,6 +207,7 @@ function liveSim() {
     m.pos = Math.round(valToDeg(id, s.joints[id]) * 10) / 10;
     m.raw = valToRaw(id, s.joints[id]);
   });
+  s.actualJoints = { ...s.joints };
   if (s.sensor.connected) {
     s.sensor.persons.forEach(p => {
       p.dist = Math.max(0.5, p.dist + (Math.random() - 0.5) * 0.06);
@@ -302,33 +304,34 @@ window.RosBridge = (function() {
 
       // Joint states → -100..100 scale
       if (data.joint_states && Array.isArray(data.joint_states.name)) {
-        const joints = { ...Store.state.joints };
+        const actualJoints = { ...Store.state.actualJoints };
         data.joint_states.name.forEach((name, i) => {
           const pos = data.joint_states.position && data.joint_states.position[i];
           if (pos !== undefined) {
             const deg = pos * 180 / Math.PI;
-            joints[name] = DEG_TO_VAL(name, deg);
+            actualJoints[name] = DEG_TO_VAL(name, deg);
           }
         });
-        patch.joints = joints;
+        patch.actualJoints = actualJoints;
       }
 
       // Motor diagnostics
-      if (data.motor_diagnostics && Array.isArray(data.motor_diagnostics.motors)) {
+      const diagnostics = data.motor_diagnostics && (data.motor_diagnostics.diagnostics || data.motor_diagnostics.motors);
+      if (Array.isArray(diagnostics)) {
         const motors = {};
         JOINT_IDS.forEach(id => { motors[id] = { ...Store.state.motors[id] }; });
-        data.motor_diagnostics.motors.forEach(m => {
+        diagnostics.forEach(m => {
           const id = m.joint_name;
           if (id && motors[id]) {
             motors[id] = {
-              volt: m.voltage !== undefined ? m.voltage : motors[id].volt,
-              temp: m.temperature !== undefined ? m.temperature : motors[id].temp,
+              volt: m.voltage_v !== undefined ? m.voltage_v : (m.voltage !== undefined ? m.voltage : motors[id].volt),
+              temp: m.temperature_c !== undefined ? m.temperature_c : (m.temperature !== undefined ? m.temperature : motors[id].temp),
               load: m.load !== undefined ? m.load * 100 : motors[id].load,
-              pos: m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : motors[id].pos,
-              raw: m.present_position !== undefined ? m.present_position : motors[id].raw,
+              pos: m.angle_deg !== undefined ? m.angle_deg : (m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : motors[id].pos),
+              raw: m.raw_position !== undefined ? m.raw_position : (m.present_position !== undefined ? m.present_position : motors[id].raw),
               torque: m.torque_enabled !== undefined ? m.torque_enabled : motors[id].torque,
               error: (m.error_code === 0 || m.error_code === undefined) ? 'OK' : 'E' + m.error_code,
-              model: m.model_name || motors[id].model,
+              model: m.model || m.model_name || motors[id].model,
             };
           }
         });
