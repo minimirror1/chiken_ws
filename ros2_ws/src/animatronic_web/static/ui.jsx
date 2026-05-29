@@ -22,6 +22,13 @@ const ICONS = {
   arrowR: 'M5 10h10m-4-4l4 4-4 4',
   bolt: 'M11 3L5 11h4l-1 6 6-8h-4z',
   eye: 'M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5z M10 12a2 2 0 100-4 2 2 0 000 4z',
+  lockTime: 'M4 10h12M10 4v12M7 7l3-3 3 3M7 13l3 3 3-3',
+  lockValue: 'M10 4v12M4 10h12M7 7l3 3-3 3M13 7l-3 3 3 3',
+  frame: 'M5 7V5h4M15 7V5h-4M5 13v2h4M15 13v2h-4M7 10h6',
+  key: 'M5 10a3 3 0 116 0 3 3 0 01-6 0zM11 10h6m-2 0v3m-3-3v2',
+  tangent: 'M4 14c4-8 8-8 12 0M4 14h4M12 6h4',
+  flat: 'M4 10h12M6 8l-2 2 2 2M14 8l2 2-2 2',
+  step: 'M4 14h4V8h4V5h4',
 };
 function Icon({ name, className }) {
   const d = ICONS[name];

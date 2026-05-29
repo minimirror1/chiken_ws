@@ -138,48 +138,64 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selId, showSnapGri
     dragRef.current = null;
     setDragging(false);
   };
+  const toolDefs = [
+    { icon: 'lockTime', title: '시간축 잠금', active: lockTime, onClick: () => setLockTime(v => !v) },
+    { icon: 'lockValue', title: '모션축 잠금', active: lockValue, onClick: () => setLockValue(v => !v) },
+    { icon: 'frame', title: '전체 커브 보기', disabled: true },
+    { icon: 'key', title: '키 선택 도구', disabled: true },
+    { icon: 'tangent', title: '자동 탄젠트', disabled: true },
+    { icon: 'flat', title: '플랫 탄젠트', disabled: true },
+    { icon: 'step', title: '스텝 탄젠트', disabled: true },
+  ];
 
   return (
     <div className="graph-wrap">
       <div className="graph-tools">
-        <button className={`graph-lock ${lockTime ? 'on' : ''}`} onClick={() => setLockTime(v => !v)}>시간축 잠금</button>
-        <button className={`graph-lock ${lockValue ? 'on' : ''}`} onClick={() => setLockValue(v => !v)}>모션축 잠금</button>
         <div className="graph-legend">
           {JOINTS.map(j => (
             <span key={j.id}><i style={{ background: GRAPH_COLORS[j.id] }}></i>{j.kr}</span>
           ))}
         </div>
       </div>
-      <div className={`motion-graph ${showSnapGrid || hover || dragging ? 'show-snap' : ''}`} onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
-        <svg ref={graphRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-          <rect className="graph-bg" x="0" y="0" width={W} height={H} />
-          {snapTicks.map(tm => (
-            <line key={tm} className={`graph-snap ${tm % 500 === 0 ? 'major' : ''}`} x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
+      <div className="graph-main">
+        <div className="graph-toolbar" aria-label="Animation toolset">
+          {toolDefs.map(tool => (
+            <button key={tool.icon} className={`graph-tool ${tool.active ? 'on' : ''}`} title={tool.title} onClick={tool.onClick} disabled={tool.disabled}>
+              <Icon name={tool.icon} />
+            </button>
           ))}
-          {ticks.map(tm => (
-            <g key={tm}>
-              <line className="graph-tick" x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
-              <text className="graph-time" x={xFromTime(tm) + 5} y="12">{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</text>
-            </g>
-          ))}
-          <line className="graph-limit" x1="0" x2={W} y1={yFromValue(100)} y2={yFromValue(100)} />
-          <line className="graph-zero" x1="0" x2={W} y1={yFromValue(0)} y2={yFromValue(0)} />
-          <line className="graph-limit" x1="0" x2={W} y1={yFromValue(-100)} y2={yFromValue(-100)} />
-          {JOINT_IDS.map(jid => (
-            <path key={jid} className="graph-curve" d={curvePath(jid)} style={{ stroke: GRAPH_COLORS[jid] }} />
-          ))}
-          {p.keyframes.map(k => JOINT_IDS.map(jid => (
-            <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
-              style={{ fill: GRAPH_COLORS[jid] }}
-              onPointerDown={e => startDrag(e, k, jid)}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}>
-              <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.joints[jid])}`}</title>
-            </circle>
-          )))}
-          <line className="graph-playhead" x1={xFromTime(t)} x2={xFromTime(t)} y1="0" y2={H} />
-        </svg>
+        </div>
+        <div className={`motion-graph ${showSnapGrid || hover || dragging ? 'show-snap' : ''}`} onPointerEnter={() => setHover(true)} onPointerLeave={() => setHover(false)}>
+          <svg ref={graphRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+            <rect className="graph-bg" x="0" y="0" width={W} height={H} />
+            {snapTicks.map(tm => (
+              <line key={tm} className={`graph-snap ${tm % 500 === 0 ? 'major' : ''}`} x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
+            ))}
+            {ticks.map(tm => (
+              <g key={tm}>
+                <line className="graph-tick" x1={xFromTime(tm)} x2={xFromTime(tm)} y1="0" y2={H} />
+                <text className="graph-time" x={xFromTime(tm) + 5} y="12">{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</text>
+              </g>
+            ))}
+            <line className="graph-limit" x1="0" x2={W} y1={yFromValue(100)} y2={yFromValue(100)} />
+            <line className="graph-zero" x1="0" x2={W} y1={yFromValue(0)} y2={yFromValue(0)} />
+            <line className="graph-limit" x1="0" x2={W} y1={yFromValue(-100)} y2={yFromValue(-100)} />
+            {JOINT_IDS.map(jid => (
+              <path key={jid} className="graph-curve" d={curvePath(jid)} style={{ stroke: GRAPH_COLORS[jid] }} />
+            ))}
+            {p.keyframes.map(k => JOINT_IDS.map(jid => (
+              <circle key={`${k.id}-${jid}`} className={`graph-point ${k.id === selId ? 'sel' : ''}`} cx={xFromTime(k.time_ms)} cy={yFromValue(k.joints[jid])} r={k.id === selId ? 5 : 4}
+                style={{ fill: GRAPH_COLORS[jid] }}
+                onPointerDown={e => startDrag(e, k, jid)}
+                onPointerMove={moveDrag}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}>
+                <title>{`${jid} · ${k.time_ms}ms · ${fmtJointValue(k.joints[jid])}`}</title>
+              </circle>
+            )))}
+            <line className="graph-playhead" x1={xFromTime(t)} x2={xFromTime(t)} y1="0" y2={H} />
+          </svg>
+        </div>
       </div>
     </div>
   );
@@ -468,8 +484,8 @@ function TabMotion() {
         </div>
 
         {/* CENTER — 3D + edit stack + timeline ruler */}
-        <div className="col" style={{ minHeight: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 12, minHeight: 0, flex: 1 }}>
+        <div style={{ display: 'grid', gridTemplateRows: 'minmax(0, 1fr) minmax(250px, 1fr)', gap: 12, minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 12, minHeight: 0 }}>
             <Panel title="3D 뷰어" accent="STUDIO" ticked className="flex1" bodyClass="pad-0" sub="선택 키프레임 자세 표시">
               <ViewerFrame interactive warnLimits label={playing ? 'PREVIEW ▶' : `KF ${p.keyframes.indexOf(sel) + 1}`} />
             </Panel>
@@ -508,46 +524,48 @@ function TabMotion() {
             </div>
           </div>
 
-          {/* timeline */}
-          <div className="timeline-wrap">
-            <div className="tl-timebox">
-              <span className="total">{fmtTimelineTime(dur)}</span>
-              <span className="selected">{fmtTimelineTime(t)}</span>
-            </div>
-            <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
-              onPointerEnter={() => setTimelineHover(true)}
-              onPointerLeave={() => setTimelineHover(false)}>
-              {poseClipboard && (
-                <div className="tl-paste-overlay">
-                  <span>붙여넣을 시간 위치를 클릭하세요</span>
-                  <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
-                </div>
-              )}
-              <div className="tl-ruler" onClick={handleTimelineClick}>
-                {ticks.map(tm => (
-                  <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
-                ))}
+          <div className="motion-lower">
+            {/* timeline */}
+            <div className="timeline-wrap">
+              <div className="tl-timebox">
+                <span className="total">{fmtTimelineTime(dur)}</span>
+                <span className="selected">{fmtTimelineTime(t)}</span>
               </div>
-              <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
-                <div className="tl-snap-grid">
-                  {snapTicks.map(tm => (
-                    <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+              <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
+                onPointerEnter={() => setTimelineHover(true)}
+                onPointerLeave={() => setTimelineHover(false)}>
+                {poseClipboard && (
+                  <div className="tl-paste-overlay">
+                    <span>붙여넣을 시간 위치를 클릭하세요</span>
+                    <em>KF {String(poseClipboard.sourceIndex).padStart(2, '0')} @ {poseClipboard.sourceTime}ms · ESC 취소</em>
+                  </div>
+                )}
+                <div className="tl-ruler" onClick={handleTimelineClick}>
+                  {ticks.map(tm => (
+                    <div key={tm} className="tl-tick" style={{ left: (tm / viewDur) * 100 + '%' }}><span>{(tm / 1000).toFixed(tm % 1000 ? 1 : 0)}s</span></div>
                   ))}
                 </div>
-                {p.keyframes.map(k => (
-                  <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
-                    onPointerDown={e => startKfDrag(e, k)}
-                    onPointerMove={e => moveKfDrag(e, k)}
-                    onPointerUp={e => endKfDrag(e, k)}
-                    onPointerCancel={e => endKfDrag(e, k)}
-                    onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
-                ))}
-                <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
+                <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
+                  <div className="tl-snap-grid">
+                    {snapTicks.map(tm => (
+                      <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+                    ))}
+                  </div>
+                  {p.keyframes.map(k => (
+                    <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
+                      onPointerDown={e => startKfDrag(e, k)}
+                      onPointerMove={e => moveKfDrag(e, k)}
+                      onPointerUp={e => endKfDrag(e, k)}
+                      onPointerCancel={e => endKfDrag(e, k)}
+                      onClick={e => { e.stopPropagation(); if (suppressClickRef.current) { suppressClickRef.current = false; return; } selectKf(k); }} title={k.time_ms + 'ms'}></div>
+                  ))}
+                  <div className="tl-playhead" style={{ left: (t / viewDur) * 100 + '%' }}></div>
+                </div>
               </div>
             </div>
+            <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selId={selId} showSnapGrid={showSnapGrid}
+              resolveTimeSlot={resolveTimeSlot} onSelect={selectKf} onEditKey={updateGraphKey} />
           </div>
-          <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selId={selId} showSnapGrid={showSnapGrid}
-            resolveTimeSlot={resolveTimeSlot} onSelect={selectKf} onEditKey={updateGraphKey} />
         </div>
 
       </div>
