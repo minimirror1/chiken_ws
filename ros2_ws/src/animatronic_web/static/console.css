@@ -79,7 +79,7 @@ body {
    ============================================================ */
 .app {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 50px 52px minmax(0, 1fr) 26px;
   height: 100%;
 }
 
@@ -145,9 +145,11 @@ body {
 .tabs {
   display: flex; align-items: stretch;
   background: var(--bg-1);
+  height: 52px; min-height: 52px; max-height: 52px;
 }
 .tab {
   display: flex; align-items: center; gap: 9px;
+  height: 52px;
   padding: 0 17px; cursor: pointer; position: relative;
   border-right: 1px solid var(--line-0);
   color: var(--tx-2); font-size: 12px; letter-spacing: .01em;
@@ -164,8 +166,8 @@ body {
 }
 
 /* ---- main area ---- */
-.main { overflow: hidden; background: var(--bg-0); position: relative; }
-.tabpane { height: 100%; overflow: auto; }
+.main { min-height: 0; overflow: hidden; background: var(--bg-0); position: relative; }
+.tabpane { height: 100%; min-height: 0; overflow: auto; }
 
 /* ---- status footer ---- */
 .footer {
