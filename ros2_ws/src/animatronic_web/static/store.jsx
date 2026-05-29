@@ -402,6 +402,10 @@ window.RosBridge = (function() {
     },
   };
 
+  Store.sendJointsToRos = function() {
+    return bridge.sendJoints(Store.state.joints);
+  };
+
   // Store 메서드 오버라이드 → API 연동
   const _setMode = Store.setMode.bind(Store);
   Store.setMode = function(m) {

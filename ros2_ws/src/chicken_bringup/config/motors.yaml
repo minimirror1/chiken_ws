@@ -1,26 +1,38 @@
 /**:
   ros__parameters:
-    mock_mode: true
+    mock_mode: false
     port: "/dev/ttyUSB0"
     baudrate: 1000000
+    protocol_version: 2.0
+    joint_names:
+      - lower_pitch
+      - upper_yaw
+      - upper_pitch
     joints:
-      lower_yaw:
-        id: 1
-        model: "XM430-W210-T"
-        min_angle_deg: -90.0
-        max_angle_deg: 90.0
       lower_pitch:
-        id: 2
-        model: "XM430-W210-T"
-        min_angle_deg: -45.0
-        max_angle_deg: 45.0
+        id: 1
+        model: "XM430-W350-R"
+        raw_min: 1820
+        raw_home: 2048
+        raw_max: 2276
+        min_angle_deg: -20.0
+        home_angle_deg: 0.0
+        max_angle_deg: 20.0
       upper_yaw:
-        id: 3
-        model: "XL320"
-        min_angle_deg: -90.0
-        max_angle_deg: 90.0
+        id: 2
+        model: "XM430-W350-R"
+        raw_min: 1707
+        raw_home: 2048
+        raw_max: 2389
+        min_angle_deg: -30.0
+        home_angle_deg: 0.0
+        max_angle_deg: 30.0
       upper_pitch:
-        id: 4
-        model: "XL320"
-        min_angle_deg: -45.0
-        max_angle_deg: 45.0
+        id: 3
+        model: "XM430-W350-R"
+        raw_min: 1820
+        raw_home: 2048
+        raw_max: 2276
+        min_angle_deg: -20.0
+        home_angle_deg: 0.0
+        max_angle_deg: 20.0

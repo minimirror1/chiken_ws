@@ -12,6 +12,8 @@ from animatronic_interfaces.action import RunPattern
 from animatronic_interfaces.msg import (
     DetectedPerson,
     EventLog,
+    JointTarget,
+    JointTargets,
     Mode,
     MotionStatus,
     MotorDiagnosticsArray,
@@ -42,6 +44,14 @@ MODE_LABELS = {
     "test": Mode.TEST,
 }
 
+JOINT_NORMALIZATION_DEG = {
+    "lower_yaw": 90.0,
+    "lower_pitch": 35.0,
+    "upper_yaw": 80.0,
+    "upper_pitch": 48.0,
+}
+VIRTUAL_JOINTS = {"lower_yaw"}
+
 
 class ModeRequest(BaseModel):
     mode: str | int
@@ -58,6 +68,10 @@ class PatternDocument(BaseModel):
 
 class JointPositions(BaseModel):
     positions: dict[str, float]  # joint_name -> degrees
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
 
 
 def ros_message_to_dict(message: Any) -> Any:
@@ -80,7 +94,7 @@ class WebBridgeNode(Node):
         super().__init__("web_server_node")
         self.declare_parameter("namespace", "/animatronic")
         self.declare_parameter("web.host", "0.0.0.0")
-        self.declare_parameter("web.port", 8080)
+        self.declare_parameter("web.port", 18080)
         self.declare_parameter("password", "")
         default_patterns = str(Path(get_package_share_directory("animatronic_web")) / "patterns")
         self.declare_parameter("pattern_dir", default_patterns)
@@ -106,6 +120,7 @@ class WebBridgeNode(Node):
         self.mode_pub = self.create_publisher(Mode, self.topic("mode"), 10)
         self.torque_pub = self.create_publisher(Bool, self.topic("motor/torque_enable"), 10)
         self.joint_cmd_pub = self.create_publisher(JointState, self.topic("joint_cmd"), 10)
+        self.target_joints_pub = self.create_publisher(JointTargets, self.topic("target_joints"), 10)
         self.motor_home_client = self.create_client(Trigger, self.topic("motor/home"))
         self.motor_stop_client = self.create_client(Trigger, self.topic("motor/stop"))
         self.motion_stop_client = self.create_client(Trigger, self.topic("motion/stop"))
@@ -181,6 +196,23 @@ class WebBridgeNode(Node):
         msg.name = list(positions.keys())
         msg.position = [math.radians(v) for v in positions.values()]
         self.joint_cmd_pub.publish(msg)
+        targets = JointTargets()
+        targets.stamp = msg.header.stamp
+        targets.source = "web:manual"
+        for name, angle_deg in positions.items():
+            if name in VIRTUAL_JOINTS:
+                continue
+            scale_deg = JOINT_NORMALIZATION_DEG.get(name)
+            if not scale_deg:
+                continue
+            target = JointTarget()
+            target.name = name
+            target.angle_deg = float(angle_deg)
+            target.normalized_value = clamp((float(angle_deg) / scale_deg) * 100.0, -100.0, 100.0)
+            target.raw_position = 0
+            targets.joints.append(target)
+        if targets.joints:
+            self.target_joints_pub.publish(targets)
         self.log_event("web", "joints", f"Joint cmd: {positions}")
         return {"success": True, "positions": positions}
 
