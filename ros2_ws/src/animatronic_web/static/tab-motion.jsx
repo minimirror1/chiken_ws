@@ -157,10 +157,9 @@ const GRAPH_COLORS = {
   upper_pitch: '#ff6b9a',
 };
 
-function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, pickJoints, setPickJoints, breakActive, onSelectTime, onEditKey, onEditTangent, onPreset }) {
+function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapGrid, resolveAxisTime, visibleJoints, setVisibleJoints, pickJoints, setPickJoints, breakActive, onSelectTime, onEditKey, onEditTangent, onPreset }) {
   const [lockTime, setLockTime] = React.useState(false);
   const [lockValue, setLockValue] = React.useState(false);
-  const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
   const [hover, setHover] = React.useState(false);
   const [dragging, setDragging] = React.useState(false);
   const [graphSize, setGraphSize] = React.useState({ w: 1000, h: 150 });
@@ -374,17 +373,29 @@ function TabMotion() {
   const [draggingKey, setDraggingKey] = React.useState(null);
   const [poseClipboard, setPoseClipboard] = React.useState(null);
   const [timelineHover, setTimelineHover] = React.useState(false);
+  const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
   const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
   const rafRef = React.useRef();
   const playRef = React.useRef();
   const axisTrackRefs = React.useRef({});
   const dragRef = React.useRef();
   const suppressClickRef = React.useRef(false);
+  const visibleJointsRef = React.useRef(visibleJoints);
+  visibleJointsRef.current = visibleJoints;
 
   const selSlot = slots.find(sl => sl.time_ms === selTime) || slots[0];
   const selectedPose = poseAtTime(p, selSlot ? selSlot.time_ms : t);
   const editAxes = JOINT_IDS.filter(id => pickJoints[id]);
   const targetAxes = editAxes.length ? editAxes : JOINT_IDS;
+  const previewPoseAt = (pattern, time_ms, base = Store.state.joints) => {
+    const pose = poseAtTime(pattern, time_ms);
+    const out = { ...(base || {}) };
+    JOINT_IDS.forEach(id => {
+      if (visibleJointsRef.current[id]) out[id] = pose[id];
+      else if (out[id] === undefined) out[id] = 0;
+    });
+    return out;
+  };
 
   React.useEffect(() => {
     if (!slots.length) return;
@@ -398,7 +409,7 @@ function TabMotion() {
       let cur = now - start;
       if (cur >= dur) { cur = dur; setPlaying(false); Store.set({ playing: false }); }
       setT(cur);
-      Store.state.joints = poseAtTime(p, cur);
+      Store.state.joints = previewPoseAt(p, cur);
       Store.emit();
       if (cur < dur) rafRef.current = requestAnimationFrame(step);
     }
@@ -422,13 +433,13 @@ function TabMotion() {
     if (nextTime !== undefined) {
       setSelTime(nextTime);
       setT(nextTime);
-      Store.state.joints = poseAtTime({ ...p, tracks }, nextTime);
+      Store.state.joints = previewPoseAt({ ...p, tracks }, nextTime);
       Store.emit();
     }
   };
   const scrub = (nt) => {
     setT(nt); setPlaying(false);
-    Store.state.joints = poseAtTime(p, nt); Store.emit();
+    Store.state.joints = previewPoseAt(p, nt); Store.emit();
   };
   const selectTime = (time_ms) => {
     setSelTime(time_ms);
@@ -597,7 +608,7 @@ function TabMotion() {
     setDraggingKey(k.id);
     setSelTime(k.time_ms);
     setT(k.time_ms);
-    Store.state.joints = poseAtTime(p, k.time_ms); Store.emit();
+    Store.state.joints = previewPoseAt(p, k.time_ms); Store.emit();
   };
   const moveAxisDrag = (e, jid, k) => {
     const drag = dragRef.current;
@@ -796,7 +807,7 @@ function TabMotion() {
               </div>
             </div>
             <MotionGraphEditor p={p} t={t} viewDur={viewDur} ticks={ticks} snapTicks={snapTicks} selTime={selTime} showSnapGrid={showSnapGrid}
-              resolveAxisTime={resolveAxisTime} pickJoints={pickJoints} setPickJoints={setPickJoints} breakActive={!!selSlot && targetAxes.some(id => selSlot.keys[id]?.tangent?.broken)} onSelectTime={selectTime} onEditKey={updateGraphKey}
+              resolveAxisTime={resolveAxisTime} visibleJoints={visibleJoints} setVisibleJoints={setVisibleJoints} pickJoints={pickJoints} setPickJoints={setPickJoints} breakActive={!!selSlot && targetAxes.some(id => selSlot.keys[id]?.tangent?.broken)} onSelectTime={selectTime} onEditKey={updateGraphKey}
               onEditTangent={updateTangent} onPreset={applyTangentPreset} />
           </div>
         </div>
