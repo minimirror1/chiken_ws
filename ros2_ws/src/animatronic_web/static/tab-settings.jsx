@@ -14,7 +14,7 @@ function TabSettings() {
         <div className="field"><label>장치 이름</label><input className="ninput" value={st.deviceName} onChange={e => set({ deviceName: e.target.value })} /></div>
         <div className="field"><label>ROS_DOMAIN_ID</label><input className="ninput tnum" type="number" value={st.rosDomain} onChange={e => set({ rosDomain: parseInt(e.target.value || '0') })} /></div>
         <KV k="펌웨어" v="coop-fw 2.4.1" />
-        <KV k="컨트롤러" v="Jetson Orin Nano" />
+        <KV k="컨트롤러" v="Raspberry Pi 5" />
         <KV k="모터 버스" v="RS-485 · 1 Mbps" />
       </Panel>
 

@@ -458,10 +458,20 @@ body {
 .tl-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line-0); }
 .tl-tick span { position: absolute; top: 3px; left: 4px; font-family: var(--mono); font-size: 9px; color: var(--tx-3); }
 .tl-track { position: relative; height: 48px; }
+.tl-snap-grid {
+  position: absolute; inset: 0; z-index: 0; opacity: 0; pointer-events: none;
+  transition: opacity .12s ease;
+}
+.timeline.show-snap .tl-snap-grid { opacity: 1; }
+.tl-snap {
+  position: absolute; top: 9px; bottom: 9px; width: 1px;
+  background: rgba(110, 130, 145, .22); transform: translateX(-50%);
+}
+.tl-snap.major { top: 5px; bottom: 5px; background: rgba(0, 209, 255, .28); }
 .tl-key {
   position: absolute; top: 50%; transform: translate(-50%,-50%) rotate(45deg);
   width: 14px; height: 14px; background: var(--bg-3); border: 1.5px solid var(--cy-line);
-  cursor: grab; transition: all .1s; border-radius: 2px; touch-action: none;
+  cursor: grab; transition: all .1s; border-radius: 2px; touch-action: none; z-index: 2;
 }
 .tl-key:hover { background: var(--cy-dim); }
 .tl-key.sel { background: var(--cy); border-color: #fff; box-shadow: 0 0 10px var(--cy-glow); }

@@ -68,6 +68,7 @@ function TabMotion() {
   const [verifyRes, setVerifyRes] = React.useState(null);
   const [draggingKfId, setDraggingKfId] = React.useState(null);
   const [poseClipboard, setPoseClipboard] = React.useState(null);
+  const [timelineHover, setTimelineHover] = React.useState(false);
   const rafRef = React.useRef();
   const playRef = React.useRef();
   const trackRef = React.useRef();
@@ -245,6 +246,9 @@ function TabMotion() {
   const ticks = [];
   const tickStep = viewDur > 4000 ? 1000 : 500;
   for (let tm = 0; tm <= viewDur; tm += tickStep) ticks.push(tm);
+  const snapTicks = [];
+  for (let tm = 0; tm <= viewDur; tm += 50) snapTicks.push(tm);
+  const showSnapGrid = timelineHover || poseClipboard || draggingKfId;
 
   return (
     <div style={{ height: '100%', display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
@@ -308,7 +312,9 @@ function TabMotion() {
           </Panel>
 
           {/* timeline */}
-          <div className={`timeline ${poseClipboard ? 'paste-mode' : ''}`}>
+          <div className={`timeline ${poseClipboard ? 'paste-mode' : ''} ${showSnapGrid ? 'show-snap' : ''}`}
+            onPointerEnter={() => setTimelineHover(true)}
+            onPointerLeave={() => setTimelineHover(false)}>
             {poseClipboard && (
               <div className="tl-paste-overlay">
                 <span>붙여넣을 시간 위치를 클릭하세요</span>
@@ -321,6 +327,11 @@ function TabMotion() {
               ))}
             </div>
             <div className="tl-track" ref={trackRef} onClick={handleTimelineClick}>
+              <div className="tl-snap-grid">
+                {snapTicks.map(tm => (
+                  <span key={tm} className={`tl-snap ${tm % 500 === 0 ? 'major' : ''}`} style={{ left: (tm / viewDur) * 100 + '%' }}></span>
+                ))}
+              </div>
               {p.keyframes.map(k => (
                 <div key={k.id} className={`tl-key ${k.id === selId ? 'sel' : ''} ${k.id === draggingKfId ? 'dragging' : ''}`} style={{ left: (k.time_ms / viewDur) * 100 + '%' }}
                   onPointerDown={e => startKfDrag(e, k)}
