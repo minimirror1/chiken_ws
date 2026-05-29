@@ -338,17 +338,18 @@ function MotionGraphEditor({ p, t, viewDur, ticks, snapTicks, selTime, showSnapG
               const h = handleFor(keys, index, side);
               if (!h) return null;
               const x = xFromTime(k.time_ms), y = yFromValue(k.value);
+              const angle = Math.atan2(y - h.y, x - h.x) * 180 / Math.PI;
               return (
                 <g key={`${jid}-${k.id}-${side}`} className="graph-handle">
                   <line className="graph-handle-line" x1={x} y1={y} x2={h.x} y2={h.y} style={{ stroke: GRAPH_COLORS[jid] }} />
-                  <circle className="graph-handle-dot" cx={h.x} cy={h.y} r="4"
+                  <polygon className="graph-handle-arrow" points="5,0 -4,-5 -4,5" transform={`translate(${h.x} ${h.y}) rotate(${angle})`}
                     style={{ fill: GRAPH_COLORS[jid] }}
                     onPointerDown={e => startHandleDrag(e, jid, k, side)}
                     onPointerMove={moveDrag}
                     onPointerUp={endDrag}
                     onPointerCancel={endDrag}>
                     <title>{`${jid} ${side} tangent`}</title>
-                  </circle>
+                  </polygon>
                 </g>
               );
             }))}

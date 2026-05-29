@@ -580,8 +580,8 @@ body {
 .graph-point.sel { stroke: #fff; filter: drop-shadow(0 0 4px rgba(0,209,255,.75)); }
 .graph-point:active { cursor: grabbing; }
 .graph-handle-line { stroke-width: 1; opacity: .7; vector-effect: non-scaling-stroke; stroke-dasharray: 3 3; pointer-events: none; }
-.graph-handle-dot { stroke: var(--bg-0); stroke-width: 1.5; cursor: crosshair; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px rgba(255,255,255,.18)); }
-.graph-handle-dot:hover { stroke: #fff; stroke-width: 2; }
+.graph-handle-arrow { stroke: var(--bg-0); stroke-width: 1.4; cursor: crosshair; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px rgba(255,255,255,.18)); }
+.graph-handle-arrow:hover { stroke: #fff; stroke-width: 2; }
 .graph-playhead { stroke: var(--cy); stroke-width: 1.5; filter: drop-shadow(0 0 3px var(--cy)); pointer-events: none; vector-effect: non-scaling-stroke; }
 
 /* keyframe list */
