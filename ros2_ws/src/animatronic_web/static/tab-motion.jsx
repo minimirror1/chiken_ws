@@ -3,6 +3,10 @@
    ============================================================ */
 
 // interpolate a pose at time t across keyframes
+function fmtJointValue(v) {
+  return Number(v).toFixed(1);
+}
+
 function poseAtTime(kfs, t) {
   if (!kfs.length) return { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 };
   if (t <= kfs[0].time_ms) return { ...kfs[0].joints };
@@ -280,7 +284,7 @@ function TabMotion() {
                     <span className="ix">{String(i + 1).padStart(2, '0')}</span>
                     <div className="info">
                       <div className="tm">{k.time_ms} <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>ms</span></div>
-                      <div className="jv">{JOINT_IDS.map(id => k.joints[id]).join(' · ')} · {INTERP[k.interp].kr}</div>
+                      <div className="jv">{JOINT_IDS.map(id => fmtJointValue(k.joints[id])).join(' · ')} · {INTERP[k.interp].kr}</div>
                     </div>
                     <div className="row center" style={{ gap: 4 }}>
                       <button className="btn ghost sm" style={{ padding: '3px 6px' }} onClick={e => copyPose(e, k, i)} title="자세 복사"><Icon name="copy" /></button>
