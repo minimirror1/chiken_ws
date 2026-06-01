@@ -34,7 +34,7 @@ function rawToServoDeg(raw) {
 }
 
 function rawToDialDeg(raw) {
-  return rawToServoDeg(raw) - 180;
+  return 180 - rawToServoDeg(raw);
 }
 
 function polarPoint(cx, cy, radius, deg) {
@@ -75,17 +75,17 @@ function RobotisDial({ row, currentRaw }) {
       <svg viewBox="0 0 180 180" aria-label="ROBOTIS style virtual dial">
         <circle className="dial-case" cx="90" cy="90" r="72" />
         <circle className="dial-face" cx="90" cy="90" r="57" />
-        <path className={`dial-range ${reversed ? 'rev' : ''}`} d={dialArcPath(90, 90, 67, raw0Dial, raw100Dial, reversed)} />
+        <path className={`dial-range ${reversed ? 'rev' : ''}`} d={dialArcPath(90, 90, 67, raw0Dial, raw100Dial, !reversed)} />
         {[0, 90, 180, 270, 360].map(deg => {
-          const dialDeg = deg - 180;
+          const dialDeg = 180 - deg;
           const p1 = polarPoint(90, 90, 60, dialDeg);
           const p2 = polarPoint(90, 90, deg % 180 === 0 ? 70 : 66, dialDeg);
           return <line key={deg} className="dial-tick" x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} />;
         })}
         <text className="dial-label top" x="90" y="19">180°</text>
-        <text className="dial-label right" x="151" y="94">270°</text>
+        <text className="dial-label right" x="151" y="94">90°</text>
         <text className="dial-label bottom" x="90" y="166">0/360°</text>
-        <text className="dial-label left" x="24" y="94">90°</text>
+        <text className="dial-label left" x="24" y="94">270°</text>
         <line className="dial-home-line" x1="90" y1="90" x2={home.x} y2={home.y} />
         <line className="dial-arm" x1="90" y1="90" x2={arm.x} y2={arm.y} />
         <circle className="dial-hub" cx="90" cy="90" r="16" />
