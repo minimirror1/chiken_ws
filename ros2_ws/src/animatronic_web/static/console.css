@@ -658,12 +658,7 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 }
 .motorcfg-head {
   display: grid;
-  grid-template-columns: minmax(360px, .9fr) minmax(520px, 1.3fr);
-  gap: 12px;
-}
-.motorcfg-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .motorcfg-body {
@@ -681,6 +676,13 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motor-map th,
 .motor-map td {
   vertical-align: middle;
+}
+.motor-map-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .motor-map tr.sel td {
   background: var(--cy-dim);

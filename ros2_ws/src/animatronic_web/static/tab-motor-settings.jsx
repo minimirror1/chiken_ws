@@ -210,13 +210,6 @@ function TabMotorSettings() {
   return (
     <div className="pad motorcfg">
       <div className="motorcfg-head">
-        <Panel title="요약" accent="MOTOR SETUP" bodyClass="motorcfg-stats">
-          <Stat k="MOTORS" v={rows.length} kind="cy" />
-          <Stat k="REVERSED" v={reversed} kind={reversed ? 'warn' : ''} />
-          <Stat k="ERRORS" v={errors.length} kind={errors.length ? 'err' : 'cy'} />
-          <Stat k="DIRTY" v={dirty ? 'YES' : 'NO'} kind={dirty ? 'warn' : ''} />
-        </Panel>
-
         <Panel title="작업" accent="ACTIONS" bodyClass="col gap8">
           <div className="btn-row">
             <Btn kind="ghost" size="sm" icon="refresh" disabled={!window.RosBridge || !window.RosBridge.rosMode || !!busy} onClick={() => window.RosBridge.api('/api/motor-config').then(data => {
@@ -236,7 +229,19 @@ function TabMotorSettings() {
       </div>
 
       <div className="motorcfg-body">
-        <Panel title="모터 매핑" accent="MAP" bodyClass="pad-0">
+        <Panel
+          title="모터 매핑"
+          accent="MAP"
+          bodyClass="pad-0"
+          right={
+            <span className="motor-map-summary">
+              <Badge kind="cy">MOTORS {rows.length}</Badge>
+              <Badge kind={reversed ? 'warn' : 'cy'}>REVERSED {reversed}</Badge>
+              <Badge kind={errors.length ? 'err' : 'ok'}>ERRORS {errors.length}</Badge>
+              <Badge kind={dirty ? 'warn' : 'ok'}>DIRTY {dirty ? 'YES' : 'NO'}</Badge>
+            </span>
+          }
+        >
           <table className="tbl motor-map">
             <thead>
               <tr>
