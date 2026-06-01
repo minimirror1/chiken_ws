@@ -252,6 +252,7 @@ function TabMotorSettings() {
       ? manualRaw[selectedRow.joint_name]
       : (selectedMotor.raw !== undefined ? selectedMotor.raw : selectedRow.raw_home))
     : 0;
+  const syncReady = !s.rosConnected || s.motorSynced;
 
   const updateRow = (index, patch) => {
     setRows(rs => rs.map((r, i) => i === index ? { ...r, ...patch } : r));
@@ -293,7 +294,7 @@ function TabMotorSettings() {
     }
   };
   const commandSelectedRaw = (raw) => {
-    if (!selectedRow) return;
+    if (!selectedRow || !syncReady) return;
     const nextRaw = clampRawForRow(selectedRow, raw);
     setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
     if (window.RosBridge && window.RosBridge.rosMode) {
@@ -415,10 +416,13 @@ function TabMotorSettings() {
             >
               TORQUE {selectedTorque ? 'ON' : 'OFF'}
             </button>
+            {!syncReady && <Badge kind="warn">현재 위치 동기화 대기</Badge>}
             <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
             <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />
             <div className="motor-jog-bottom">
-              <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} />
+              {syncReady
+                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} />
+                : <button className="btn ghost block" disabled>동기화 대기</button>}
             </div>
           </>
         )}

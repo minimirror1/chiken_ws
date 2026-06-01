@@ -8,12 +8,14 @@ function TabManual() {
   const live = s.joints;
   const actual = s.actualJoints || live;
   const view = pending || live;
+  const syncReady = !s.rosConnected || (s.motorSynced && s.targetSyncedFromActual);
 
   const setJ = (id, v) => {
+    if (!syncReady) return;
     v = Math.max(-100, Math.min(100, v));
     setPending(p => ({ ...(p || live), [id]: v }));
   };
-  const apply = () => { if (pending) { Store.setPose(pending, 'manual'); setPending(null); } };
+  const apply = () => { if (syncReady && pending) { Store.setPose(pending, 'manual'); setPending(null); } };
   const revert = () => setPending(null);
   const captureToStudio = () => {
     const p = Store.getPattern(s.editingPatternId) || s.patterns[0];
@@ -30,7 +32,7 @@ function TabManual() {
 
       {/* LEFT — joint sliders */}
       <div className="col" style={{ minHeight: 0 }}>
-        <Panel title="관절 제어" accent="JOINTS" ticked right={pending ? <Badge kind="warn">미적용 변경</Badge> : <Badge kind="ok">동기화됨</Badge>}>
+        <Panel title="관절 제어" accent="JOINTS" ticked right={!syncReady ? <Badge kind="warn">동기화 대기</Badge> : (pending ? <Badge kind="warn">미적용 변경</Badge> : <Badge kind="ok">동기화됨</Badge>)}>
           <div className="col" style={{ gap: 2 }}>
             {JOINT_IDS.map(id => (
               <JointSlider key={id} jid={id} value={view[id]} onChange={setJ} />
@@ -43,7 +45,7 @@ function TabManual() {
               options={[{ v: 'instant', label: '즉시 이동' }, { v: 'slow', label: '천천히 이동' }]} />
           </div>
           <div className="btn-row">
-            <Btn kind="solid" icon="check" onClick={apply} disabled={!pending}>목표 자세 적용</Btn>
+            <Btn kind="solid" icon="check" onClick={apply} disabled={!syncReady || !pending}>목표 자세 적용</Btn>
             <Btn kind="ghost" onClick={revert} disabled={!pending}>되돌리기</Btn>
           </div>
         </Panel>

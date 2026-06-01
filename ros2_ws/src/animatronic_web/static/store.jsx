@@ -111,6 +111,9 @@ const Store = {
     motors: initMotors(),
     motorConfig: DEFAULT_MOTOR_CONFIG,
     motorConfigPath: '',
+    motorSynced: false,
+    targetSyncedFromActual: false,
+    userCommandedPose: false,
     ros: { connected: true, node: 'chicken_controller', services: true, actions: true, hz: 50, latency: 6 },
     logs: SEED_LOGS.map((l, i) => ({ ...l, id: 'l' + i, t: nowHMS(new Date(Date.now() - (SEED_LOGS.length - i) * 3400)) })),
     patterns: SEED_PATTERNS,
@@ -138,11 +141,13 @@ const Store = {
   setJoint(id, v) {
     v = Math.max(-100, Math.min(100, Math.round(v)));
     this.state.joints = { ...this.state.joints, [id]: v };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.emit();
   },
   setPose(pose, source = 'operator') {
     this.state.joints = { ...this.state.joints, ...pose };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.log('cmd', source, '목표 자세 적용 ' + JOINT_IDS.map(id => this.state.joints[id]).join(' / '));
     this.emit();
@@ -162,6 +167,7 @@ const Store = {
   },
   home() {
     this.state.joints = { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.log('cmd', 'operator', '기준 자세(home) 복귀');
     this.emit();
@@ -321,6 +327,10 @@ window.RosBridge = (function() {
           }
         });
         patch.actualJoints = actualJoints;
+        if (!Store.state.targetSyncedFromActual && !Store.state.userCommandedPose) {
+          patch.joints = { ...Store.state.joints, ...actualJoints };
+          patch.targetSyncedFromActual = true;
+        }
       }
 
       // Motor diagnostics
@@ -344,6 +354,7 @@ window.RosBridge = (function() {
           }
         });
         patch.motors = motors;
+        patch.motorSynced = true;
       }
 
       // Motion status
