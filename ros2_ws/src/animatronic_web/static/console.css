@@ -860,10 +860,6 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   color: var(--tx-0);
   font-weight: 500;
 }
-.angle-readout-grid {
-  display: grid;
-  gap: 8px;
-}
 .motor-error {
   border: 1px solid rgba(230,95,80,.38);
   border-radius: var(--r);

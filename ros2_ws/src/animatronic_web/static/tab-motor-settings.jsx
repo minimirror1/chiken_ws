@@ -292,11 +292,6 @@ function TabMotorSettings() {
             <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
             <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
             <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
-            <div className="angle-readout-grid">
-              <KV k="0% 대응각" v={rawToServoDeg(selectedRow.raw_0_percent).toFixed(1) + '°'} />
-              <KV k="정자세 대응각" v={rawToServoDeg(selectedRow.raw_home).toFixed(1) + '°'} />
-              <KV k="100% 대응각" v={rawToServoDeg(selectedRow.raw_100_percent).toFixed(1) + '°'} />
-            </div>
           </>
         )}
       </Panel>
