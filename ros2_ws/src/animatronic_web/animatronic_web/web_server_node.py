@@ -20,6 +20,7 @@ from animatronic_interfaces.msg import (
     MotorDiagnosticsArray,
 )
 from animatronic_interfaces.srv import SetMotorCalibration
+from animatronic_interfaces.srv import MotorCommand
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -70,6 +71,10 @@ class PatternDocument(BaseModel):
 
 class JointPositions(BaseModel):
     positions: dict[str, float]  # joint_name -> degrees
+
+
+class RawPositionRequest(BaseModel):
+    raw: int
 
 
 class MotorCalibrationItem(BaseModel):
@@ -200,6 +205,10 @@ class WebBridgeNode(Node):
         self.target_joints_pub = self.create_publisher(JointTargets, self.topic("target_joints"), 10)
         self.motor_home_client = self.create_client(Trigger, self.topic("motor/home"))
         self.motor_stop_client = self.create_client(Trigger, self.topic("motor/stop"))
+        self.motor_command_client = self.create_client(
+            MotorCommand,
+            self.topic("motor/command"),
+        )
         self.motor_calibration_client = self.create_client(
             SetMotorCalibration,
             self.topic("motor/calibration"),
@@ -231,6 +240,7 @@ class WebBridgeNode(Node):
                     "services": {
                         "motor_home": self.motor_home_client.service_is_ready(),
                         "motor_stop": self.motor_stop_client.service_is_ready(),
+                        "motor_command": self.motor_command_client.service_is_ready(),
                         "motor_calibration": self.motor_calibration_client.service_is_ready(),
                         "motion_stop": self.motion_stop_client.service_is_ready(),
                     },
@@ -298,6 +308,20 @@ class WebBridgeNode(Node):
         self.log_event("web", "joints", f"Joint cmd: {positions}")
         return {"success": True, "positions": positions}
 
+    def publish_raw_position(self, joint_name: str, raw_position: int) -> dict[str, Any]:
+        targets = JointTargets()
+        targets.stamp = self.get_clock().now().to_msg()
+        targets.source = "web:motor_raw"
+        target = JointTarget()
+        target.name = joint_name
+        target.angle_deg = 0.0
+        target.normalized_value = 0.0
+        target.raw_position = int(raw_position)
+        targets.joints.append(target)
+        self.target_joints_pub.publish(targets)
+        self.log_event("web", "motor_raw", f"Raw target: {joint_name}={raw_position}")
+        return {"success": True, "joint_name": joint_name, "raw": int(raw_position)}
+
     async def call_trigger(self, client: Any, name: str) -> dict[str, Any]:
         if not client.service_is_ready():
             return {"success": False, "message": f"{name} service is not available"}
@@ -306,6 +330,26 @@ class WebBridgeNode(Node):
         while not future.done():
             if asyncio.get_running_loop().time() > deadline:
                 return {"success": False, "message": f"{name} service timed out"}
+            await asyncio.sleep(0.02)
+        result = future.result()
+        return {"success": bool(result.success), "message": result.message}
+
+    async def call_motor_command(
+        self,
+        motor_id: int,
+        command: str,
+    ) -> dict[str, Any]:
+        client = self.motor_command_client
+        if not client.service_is_ready():
+            return {"success": False, "message": "motor/command service is not available"}
+        request = MotorCommand.Request()
+        request.id = int(motor_id)
+        request.command = command
+        future = client.call_async(request)
+        deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not future.done():
+            if asyncio.get_running_loop().time() > deadline:
+                return {"success": False, "message": "motor/command service timed out"}
             await asyncio.sleep(0.02)
         result = future.result()
         return {"success": bool(result.success), "message": result.message}
@@ -411,9 +455,20 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     async def torque(request: TorqueRequest) -> dict[str, Any]:
         return node.publish_torque(request.enabled)
 
+    @app.post("/api/motor/{motor_id}/torque", dependencies=[Depends(require_password)])
+    async def motor_torque(motor_id: int, request: TorqueRequest) -> dict[str, Any]:
+        return await node.call_motor_command(
+            motor_id,
+            "torque_on" if request.enabled else "torque_off",
+        )
+
     @app.post("/api/joints", dependencies=[Depends(require_password)])
     async def set_joints(request: JointPositions) -> dict[str, Any]:
         return node.publish_joint_positions(request.positions)
+
+    @app.post("/api/motor/{joint_name}/raw", dependencies=[Depends(require_password)])
+    async def set_motor_raw(joint_name: str, request: RawPositionRequest) -> dict[str, Any]:
+        return node.publish_raw_position(joint_name, request.raw)
 
     @app.get("/api/motor-config", dependencies=[Depends(require_password)])
     async def get_motor_config() -> dict[str, Any]:

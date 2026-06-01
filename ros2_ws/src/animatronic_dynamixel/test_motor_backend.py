@@ -116,6 +116,24 @@ class FailurePolicyTest(unittest.TestCase):
         self.assertEqual(backend.blocked_motor_ids(), [])
         self.assertEqual(backend.failure_counts(), {})
 
+    def test_mock_backend_accepts_direct_raw_targets(self):
+        config = MotorConfig(
+            joint_name="lower_pitch",
+            motor_id=1,
+            model="XM430-W350-R",
+            min_raw=1000,
+            home_raw=1700,
+            max_raw=3500,
+            min_angle_deg=0.0,
+            home_angle_deg=149.5,
+            max_angle_deg=307.7,
+            profile=PROFILES["XM430-W350-R"],
+        )
+        backend = MockDynamixelBackend([config])
+        backend.write_joint_targets({"lower_pitch": 1701})
+        diagnostic = backend.read_diagnostics()[0]
+        self.assertEqual(diagnostic.raw_position, 1701)
+
     def test_threshold_constant_matches_policy(self):
         self.assertEqual(FAILURE_BLOCK_THRESHOLD, 5)
 

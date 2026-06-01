@@ -239,6 +239,7 @@ function TabMotorSettings() {
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
   const selectedMotor = selectedRow ? (s.motors[selectedRow.joint_name] || {}) : {};
+  const selectedTorque = selectedMotor.torque !== undefined ? selectedMotor.torque : s.torque;
   const selectedRaw = selectedRow
     ? (manualRaw[selectedRow.joint_name] !== undefined
       ? manualRaw[selectedRow.joint_name]
@@ -288,11 +289,31 @@ function TabMotorSettings() {
     if (!selectedRow) return;
     const nextRaw = clampRawForRow(selectedRow, raw);
     setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
-    const angleDeg = rawToServoDeg(nextRaw);
     if (window.RosBridge && window.RosBridge.rosMode) {
-      window.RosBridge.api('/api/joints', {
+      window.RosBridge.api(`/api/motor/${encodeURIComponent(selectedRow.joint_name)}/raw`, {
         method: 'POST',
-        body: JSON.stringify({ positions: { [selectedRow.joint_name]: angleDeg } }),
+        body: JSON.stringify({ raw: nextRaw }),
+      }).catch(() => {});
+    }
+  };
+  const commandTorque = (enabled) => {
+    if (!selectedRow) return;
+    const motors = { ...s.motors };
+    motors[selectedRow.joint_name] = {
+      ...motors[selectedRow.joint_name],
+      torque: enabled,
+    };
+    const allTorque = JOINT_IDS.every(id => motors[id] && motors[id].torque);
+    Store.set({ torque: allTorque, motors });
+    Store.pushLog(
+      enabled ? 'ok' : 'warn',
+      'motor',
+      `${selectedRow.joint_name} 토크 ${enabled ? 'ON' : 'OFF'}`,
+    );
+    if (window.RosBridge && window.RosBridge.rosMode) {
+      window.RosBridge.api(`/api/motor/${selectedRow.id}/torque`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
       }).catch(() => {});
     }
   };
@@ -382,10 +403,10 @@ function TabMotorSettings() {
             <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
             <button
               type="button"
-              className={`motor-torque-btn ${s.torque ? 'on' : ''}`}
-              onClick={() => Store.toggleTorque()}
+              className={`motor-torque-btn ${selectedTorque ? 'on' : ''}`}
+              onClick={() => commandTorque(!selectedTorque)}
             >
-              TORQUE {s.torque ? 'ON' : 'OFF'}
+              TORQUE {selectedTorque ? 'ON' : 'OFF'}
             </button>
             <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
             <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />

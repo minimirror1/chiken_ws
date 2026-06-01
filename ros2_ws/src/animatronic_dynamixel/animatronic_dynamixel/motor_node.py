@@ -152,6 +152,9 @@ class DynamixelBackend:
     def set_torque_enabled(self, enabled: bool) -> None:
         raise NotImplementedError
 
+    def set_motor_torque_enabled(self, motor_id: int, enabled: bool) -> bool:
+        raise NotImplementedError
+
     def write_joint_targets(self, targets: Dict[str, int]) -> None:
         raise NotImplementedError
 
@@ -193,6 +196,13 @@ class MockDynamixelBackend(DynamixelBackend):
     def set_torque_enabled(self, enabled: bool) -> None:
         for state in self._states.values():
             state.torque_enabled = enabled
+
+    def set_motor_torque_enabled(self, motor_id: int, enabled: bool) -> bool:
+        for config in self._configs:
+            if config.motor_id == motor_id:
+                self._states[config.joint_name].torque_enabled = enabled
+                return True
+        return False
 
     def write_joint_targets(self, targets: Dict[str, int]) -> None:
         for joint_name, raw_position in targets.items():
@@ -286,6 +296,18 @@ class RealDynamixelBackend(DynamixelBackend):
             )
             self._record_comm(config.motor_id, result, error, "torque enable")
         self._torque_enabled = enabled
+
+    def set_motor_torque_enabled(self, motor_id: int, enabled: bool) -> bool:
+        config = self._config_by_id.get(motor_id)
+        if config is None:
+            return False
+        result, error = self._packet_handler.write1ByteTxRx(
+            self._port_handler,
+            config.motor_id,
+            config.profile.torque_enable_addr,
+            1 if enabled else 0,
+        )
+        return self._record_comm(config.motor_id, result, error, "torque enable")
 
     def write_joint_targets(self, targets: Dict[str, int]) -> None:
         if self.blocked_motor_ids():
@@ -639,6 +661,11 @@ class MotorNode(Node):
             self._on_reboot,
         )
         self.create_service(
+            MotorCommand,
+            f"{namespace}/motor/command",
+            self._on_motor_command,
+        )
+        self.create_service(
             SetMotorCalibration,
             f"{namespace}/motor/calibration",
             self._on_set_calibration,
@@ -773,12 +800,16 @@ class MotorNode(Node):
 
     def _on_target_joints(self, msg) -> None:
         targets = {}
+        raw_mode = getattr(msg, "source", "") == "web:motor_raw"
         for joint in msg.joints:
             config = self._config_by_joint.get(joint.name)
             if config is None:
                 self.get_logger().warn(f"Ignoring unknown joint target: {joint.name}")
                 continue
-            raw_position = normalized_to_raw(joint.normalized_value, config)
+            if raw_mode:
+                raw_position = int(joint.raw_position)
+            else:
+                raw_position = normalized_to_raw(joint.normalized_value, config)
             targets[joint.name] = clamp(raw_position, config.min_raw, config.max_raw)
 
         if not targets:
@@ -828,6 +859,35 @@ class MotorNode(Node):
             else:
                 response.success = False
                 response.message = f"Unknown motor id: {request.id}"
+        except RuntimeError as exc:
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    def _on_motor_command(
+        self, request: MotorCommand.Request, response: MotorCommand.Response
+    ):
+        motor_id = int(request.id)
+        command = (request.command or "").strip().lower()
+        try:
+            if command == "reboot":
+                ok = self._backend.reboot(motor_id)
+                response.success = ok
+                response.message = (
+                    f"Reboot command accepted for motor {motor_id}"
+                    if ok else f"Unknown motor id: {motor_id}"
+                )
+            elif command in {"torque_on", "torque_off"}:
+                enabled = command == "torque_on"
+                ok = self._backend.set_motor_torque_enabled(motor_id, enabled)
+                response.success = ok
+                response.message = (
+                    f"Motor {motor_id} torque {'enabled' if enabled else 'disabled'}"
+                    if ok else f"Unknown motor id: {motor_id}"
+                )
+            else:
+                response.success = False
+                response.message = f"Unsupported motor command: {request.command}"
         except RuntimeError as exc:
             response.success = False
             response.message = str(exc)
