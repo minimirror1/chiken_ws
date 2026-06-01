@@ -653,25 +653,23 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motorcfg {
   height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-}
-.motorcfg-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-.motorcfg-body {
-  min-height: 0;
-  display: grid;
   grid-template-columns: minmax(720px, 1fr) 360px;
   gap: 12px;
 }
-.motorcfg-side {
+.motorcfg-left {
+  min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
+}
+.motorcfg-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+}
+.motorcfg-range {
+  min-height: 0;
 }
 .motor-map th,
 .motor-map td {

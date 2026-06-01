@@ -209,26 +209,31 @@ function TabMotorSettings() {
 
   return (
     <div className="pad motorcfg">
-      <div className="motorcfg-head">
-        <Panel title="작업" accent="ACTIONS" bodyClass="col gap8">
-          <div className="btn-row">
-            <Btn kind="ghost" size="sm" icon="refresh" disabled={!window.RosBridge || !window.RosBridge.rosMode || !!busy} onClick={() => window.RosBridge.api('/api/motor-config').then(data => {
-              const next = data.calibrations || [];
-              Store.set({ motorConfig: next, motorConfigPath: data.path || '' });
-              setRows(cloneMotorConfig(next));
-              setMessage('설정 다시 불러옴');
-            })}>불러오기</Btn>
-            <Btn kind="ghost" size="sm" icon="check" disabled={!!busy || localErrors.length > 0} onClick={() => runApi('검증', '/api/motor-config/validate')}>검증</Btn>
-            <Btn kind="cy" size="sm" icon="bolt" disabled={!!busy || errors.length > 0} onClick={() => runApi('적용', '/api/motor-config/apply')}>ROS 즉시 적용</Btn>
-            <Btn kind="solid" size="sm" icon="save" disabled={!!busy || errors.length > 0} onClick={() => runApi('저장', '/api/motor-config/save', 'PUT')}>YAML 저장</Btn>
-            <Btn kind="ghost" size="sm" icon="refresh" disabled={!dirty || !!busy} onClick={() => setRows(cloneMotorConfig(s.motorConfig || fallbackConfig))}>되돌리기</Btn>
-          </div>
-          <KV k="상태" v={busy ? busy + ' 중' : (message || '대기')} mono={false} />
-          <KV k="파일" v={s.motorConfigPath || 'chicken_bringup/config/motors.yaml'} />
-        </Panel>
-      </div>
+      <div className="motorcfg-left">
+        <div className="motorcfg-top">
+          <Panel title="작업" accent="ACTIONS" bodyClass="col gap8">
+            <div className="btn-row">
+              <Btn kind="ghost" size="sm" icon="refresh" disabled={!window.RosBridge || !window.RosBridge.rosMode || !!busy} onClick={() => window.RosBridge.api('/api/motor-config').then(data => {
+                const next = data.calibrations || [];
+                Store.set({ motorConfig: next, motorConfigPath: data.path || '' });
+                setRows(cloneMotorConfig(next));
+                setMessage('설정 다시 불러옴');
+              })}>불러오기</Btn>
+              <Btn kind="ghost" size="sm" icon="check" disabled={!!busy || localErrors.length > 0} onClick={() => runApi('검증', '/api/motor-config/validate')}>검증</Btn>
+              <Btn kind="cy" size="sm" icon="bolt" disabled={!!busy || errors.length > 0} onClick={() => runApi('적용', '/api/motor-config/apply')}>ROS 즉시 적용</Btn>
+              <Btn kind="solid" size="sm" icon="save" disabled={!!busy || errors.length > 0} onClick={() => runApi('저장', '/api/motor-config/save', 'PUT')}>YAML 저장</Btn>
+              <Btn kind="ghost" size="sm" icon="refresh" disabled={!dirty || !!busy} onClick={() => setRows(cloneMotorConfig(s.motorConfig || fallbackConfig))}>되돌리기</Btn>
+            </div>
+            <KV k="상태" v={busy ? busy + ' 중' : (message || '대기')} mono={false} />
+            <KV k="파일" v={s.motorConfigPath || 'chicken_bringup/config/motors.yaml'} />
+          </Panel>
 
-      <div className="motorcfg-body">
+          <Panel title="검증 결과" accent="VALIDATION" bodyClass="col gap8">
+            {errors.length ? errors.map((err, i) => <div className="motor-error" key={i}>{err}</div>) : <Badge kind="ok">설정 정상</Badge>}
+            <span className="hint">토크 ON 상태에서는 즉시 적용 서비스가 거부됩니다.</span>
+          </Panel>
+        </div>
+
         <Panel
           title="모터 매핑"
           accent="MAP"
@@ -278,30 +283,23 @@ function TabMotorSettings() {
             </tbody>
           </table>
         </Panel>
-
-        <div className="motorcfg-side">
-          <Panel title="선택 모터" accent="RANGE" bodyClass="col">
-            {selectedRow && (
-              <>
-                <KV k="Joint" v={selectedRow.joint_name} />
-                <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
-                <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
-                <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
-                <div className="angle-grid">
-                  <div className="field"><label>0% 각도</label><input className="ninput tnum" type="number" value={selectedRow.min_angle_deg} onChange={e => updateRow(selected, numberPatch('min_angle_deg', e.target.value))} /></div>
-                  <div className="field"><label>정자세 각도</label><input className="ninput tnum" type="number" value={selectedRow.home_angle_deg} onChange={e => updateRow(selected, numberPatch('home_angle_deg', e.target.value))} /></div>
-                  <div className="field"><label>100% 각도</label><input className="ninput tnum" type="number" value={selectedRow.max_angle_deg} onChange={e => updateRow(selected, numberPatch('max_angle_deg', e.target.value))} /></div>
-                </div>
-              </>
-            )}
-          </Panel>
-
-          <Panel title="검증 결과" accent="VALIDATION" bodyClass="col gap8">
-            {errors.length ? errors.map((err, i) => <div className="motor-error" key={i}>{err}</div>) : <Badge kind="ok">설정 정상</Badge>}
-            <span className="hint">토크 ON 상태에서는 즉시 적용 서비스가 거부됩니다.</span>
-          </Panel>
-        </div>
       </div>
+
+      <Panel title="선택 모터" accent="RANGE" bodyClass="col motorcfg-range">
+        {selectedRow && (
+          <>
+            <KV k="Joint" v={selectedRow.joint_name} />
+            <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
+            <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
+            <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
+            <div className="angle-grid">
+              <div className="field"><label>0% 각도</label><input className="ninput tnum" type="number" value={selectedRow.min_angle_deg} onChange={e => updateRow(selected, numberPatch('min_angle_deg', e.target.value))} /></div>
+              <div className="field"><label>정자세 각도</label><input className="ninput tnum" type="number" value={selectedRow.home_angle_deg} onChange={e => updateRow(selected, numberPatch('home_angle_deg', e.target.value))} /></div>
+              <div className="field"><label>100% 각도</label><input className="ninput tnum" type="number" value={selectedRow.max_angle_deg} onChange={e => updateRow(selected, numberPatch('max_angle_deg', e.target.value))} /></div>
+            </div>
+          </>
+        )}
+      </Panel>
     </div>
   );
 }
