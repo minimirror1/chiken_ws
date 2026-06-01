@@ -23,6 +23,12 @@ function pctClamp(v) {
   return Math.max(0, Math.min(100, v));
 }
 
+function clampRawForRow(row, raw) {
+  const lo = Math.min(Number(row.raw_0_percent), Number(row.raw_100_percent));
+  const hi = Math.max(Number(row.raw_0_percent), Number(row.raw_100_percent));
+  return Math.max(lo, Math.min(hi, Math.round(Number(raw) || 0)));
+}
+
 function rawToServoDeg(raw) {
   return pctClamp((Number(raw) / 4095) * 100) * 3.6;
 }
@@ -140,6 +146,71 @@ function MotorRangeBar({ row, currentRaw }) {
   );
 }
 
+function MotorRawControl({ row, currentRaw, commandRaw }) {
+  const [input, setInput] = React.useState(String(currentRaw));
+  const holdRef = React.useRef(null);
+
+  React.useEffect(() => {
+    setInput(String(currentRaw));
+  }, [currentRaw, row && row.joint_name]);
+
+  React.useEffect(() => () => {
+    if (holdRef.current) clearInterval(holdRef.current);
+  }, []);
+
+  const step = (delta) => {
+    const next = clampRawForRow(row, Number(input) + delta);
+    setInput(String(next));
+    commandRaw(next);
+  };
+  const startHold = (delta) => {
+    step(delta);
+    if (holdRef.current) clearInterval(holdRef.current);
+    holdRef.current = setInterval(() => step(delta), 90);
+  };
+  const stopHold = () => {
+    if (holdRef.current) clearInterval(holdRef.current);
+    holdRef.current = null;
+  };
+  const commit = () => {
+    const next = clampRawForRow(row, input);
+    setInput(String(next));
+    commandRaw(next);
+  };
+
+  return (
+    <div className="motor-raw-control">
+      <button
+        type="button"
+        className="raw-step"
+        onMouseDown={() => startHold(-1)}
+        onMouseUp={stopHold}
+        onMouseLeave={stopHold}
+        onTouchStart={e => { e.preventDefault(); startHold(-1); }}
+        onTouchEnd={stopHold}
+        title="-1 raw count"
+      >←</button>
+      <input
+        className="ninput tnum raw-current"
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+        onBlur={commit}
+      />
+      <button
+        type="button"
+        className="raw-step"
+        onMouseDown={() => startHold(1)}
+        onMouseUp={stopHold}
+        onMouseLeave={stopHold}
+        onTouchStart={e => { e.preventDefault(); startHold(1); }}
+        onTouchEnd={stopHold}
+        title="+1 raw count"
+      >→</button>
+    </div>
+  );
+}
+
 function TabMotorSettings() {
   const s = useStore();
   const fallbackConfig = window.DEFAULT_MOTOR_CONFIG || [];
@@ -148,6 +219,7 @@ function TabMotorSettings() {
   const [busy, setBusy] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [remoteErrors, setRemoteErrors] = React.useState([]);
+  const [manualRaw, setManualRaw] = React.useState({});
 
   React.useEffect(() => {
     if (!window.RosBridge || !window.RosBridge.rosMode) return;
@@ -166,6 +238,12 @@ function TabMotorSettings() {
   const dirty = JSON.stringify(rows) !== JSON.stringify(s.motorConfig || []);
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
+  const selectedMotor = selectedRow ? (s.motors[selectedRow.joint_name] || {}) : {};
+  const selectedRaw = selectedRow
+    ? (manualRaw[selectedRow.joint_name] !== undefined
+      ? manualRaw[selectedRow.joint_name]
+      : (selectedMotor.raw !== undefined ? selectedMotor.raw : selectedRow.raw_home))
+    : 0;
 
   const updateRow = (index, patch) => {
     setRows(rs => rs.map((r, i) => i === index ? { ...r, ...patch } : r));
@@ -204,6 +282,18 @@ function TabMotorSettings() {
       setMessage((detail && detail.message) || '요청 실패');
     } finally {
       setBusy('');
+    }
+  };
+  const commandSelectedRaw = (raw) => {
+    if (!selectedRow) return;
+    const nextRaw = clampRawForRow(selectedRow, raw);
+    setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
+    const angleDeg = rawToServoDeg(nextRaw);
+    if (window.RosBridge && window.RosBridge.rosMode) {
+      window.RosBridge.api('/api/joints', {
+        method: 'POST',
+        body: JSON.stringify({ positions: { [selectedRow.joint_name]: angleDeg } }),
+      }).catch(() => {});
     }
   };
 
@@ -290,8 +380,18 @@ function TabMotorSettings() {
           <>
             <KV k="Joint" v={selectedRow.joint_name} />
             <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
-            <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
-            <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
+            <button
+              type="button"
+              className={`motor-torque-btn ${s.torque ? 'on' : ''}`}
+              onClick={() => Store.toggleTorque()}
+            >
+              TORQUE {s.torque ? 'ON' : 'OFF'}
+            </button>
+            <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
+            <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />
+            <div className="motor-jog-bottom">
+              <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} />
+            </div>
           </>
         )}
       </Panel>

@@ -671,6 +671,30 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motorcfg-range {
   min-height: 0;
 }
+.motor-jog-bottom {
+  margin-top: auto;
+}
+.motor-torque-btn {
+  height: 34px;
+  border: 1px solid rgba(227,171,70,.45);
+  border-radius: var(--r);
+  background: var(--warn-dim);
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.motor-torque-btn.on {
+  border-color: rgba(82,214,163,.42);
+  background: var(--ok-dim);
+  color: var(--ok);
+}
+.motor-torque-btn:hover {
+  border-color: var(--line-2);
+  background: var(--bg-hover);
+}
 .motor-map th,
 .motor-map td {
   vertical-align: middle;
@@ -697,6 +721,38 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motor-map .cnt {
   width: 86px;
   margin-left: auto;
+}
+.motor-raw-control {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+  gap: 8px;
+  align-items: center;
+}
+.motor-raw-control .raw-step {
+  height: 38px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: var(--bg-3);
+  color: var(--cy);
+  font-family: var(--mono);
+  font-size: 19px;
+  cursor: pointer;
+  user-select: none;
+}
+.motor-raw-control .raw-step:hover {
+  background: var(--cy-dim);
+  border-color: var(--cy-line);
+}
+.motor-raw-control .raw-step:active {
+  transform: translateY(1px);
+  background: rgba(63,199,212,.22);
+}
+.motor-raw-control .raw-current {
+  height: 38px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--cy);
 }
 .motor-range {
   display: grid;
