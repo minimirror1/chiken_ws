@@ -180,9 +180,9 @@ function TabMotorSettings() {
     raw_0_percent: parseInt(r.raw_0_percent || 0),
     raw_home: parseInt(r.raw_home || 0),
     raw_100_percent: parseInt(r.raw_100_percent || 0),
-    min_angle_deg: parseFloat(r.min_angle_deg || 0),
-    home_angle_deg: parseFloat(r.home_angle_deg || 0),
-    max_angle_deg: parseFloat(r.max_angle_deg || 0),
+    min_angle_deg: rawToServoDeg(r.raw_0_percent),
+    home_angle_deg: rawToServoDeg(r.raw_home),
+    max_angle_deg: rawToServoDeg(r.raw_100_percent),
   })) });
 
   const runApi = async (label, path, method = 'POST') => {
@@ -292,10 +292,10 @@ function TabMotorSettings() {
             <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
             <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
             <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
-            <div className="angle-grid">
-              <div className="field"><label>0% 각도</label><input className="ninput tnum" type="number" value={selectedRow.min_angle_deg} onChange={e => updateRow(selected, numberPatch('min_angle_deg', e.target.value))} /></div>
-              <div className="field"><label>정자세 각도</label><input className="ninput tnum" type="number" value={selectedRow.home_angle_deg} onChange={e => updateRow(selected, numberPatch('home_angle_deg', e.target.value))} /></div>
-              <div className="field"><label>100% 각도</label><input className="ninput tnum" type="number" value={selectedRow.max_angle_deg} onChange={e => updateRow(selected, numberPatch('max_angle_deg', e.target.value))} /></div>
+            <div className="angle-readout-grid">
+              <KV k="0% 대응각" v={rawToServoDeg(selectedRow.raw_0_percent).toFixed(1) + '°'} />
+              <KV k="정자세 대응각" v={rawToServoDeg(selectedRow.raw_home).toFixed(1) + '°'} />
+              <KV k="100% 대응각" v={rawToServoDeg(selectedRow.raw_100_percent).toFixed(1) + '°'} />
             </div>
           </>
         )}

@@ -860,9 +860,8 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   color: var(--tx-0);
   font-weight: 500;
 }
-.angle-grid {
+.angle-readout-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
 }
 .motor-error {
