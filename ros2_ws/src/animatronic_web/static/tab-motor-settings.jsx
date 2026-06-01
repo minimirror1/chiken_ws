@@ -23,6 +23,66 @@ function pctClamp(v) {
   return Math.max(0, Math.min(100, v));
 }
 
+function pctToDialAngle(pct) {
+  return -135 + pctClamp(pct) * 2.7;
+}
+
+function polarPoint(cx, cy, radius, deg) {
+  const rad = (deg - 90) * Math.PI / 180;
+  return {
+    x: cx + radius * Math.cos(rad),
+    y: cy + radius * Math.sin(rad),
+  };
+}
+
+function arcPath(cx, cy, radius, startDeg, endDeg) {
+  const start = polarPoint(cx, cy, radius, startDeg);
+  const end = polarPoint(cx, cy, radius, endDeg);
+  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
+  const sweep = endDeg >= startDeg ? 1 : 0;
+  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius} ${radius} 0 ${large} ${sweep} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+}
+
+function RobotisDial({ row, currentRaw }) {
+  const currentPct = countToPercent(row, currentRaw);
+  const homePct = countToPercent(row, row.raw_home);
+  const currentAngle = pctToDialAngle(currentPct);
+  const homeAngle = pctToDialAngle(homePct);
+  const arm = polarPoint(90, 90, 47, currentAngle);
+  const home = polarPoint(90, 90, 57, homeAngle);
+  const current = polarPoint(90, 90, 65, currentAngle);
+  const rangeStart = motorDirection(row) === '역방향' ? 135 : -135;
+  const rangeEnd = motorDirection(row) === '역방향' ? -135 : 135;
+
+  return (
+    <div className="robotis-dial">
+      <svg viewBox="0 0 180 180" aria-label="ROBOTIS style virtual dial">
+        <circle className="dial-case" cx="90" cy="90" r="72" />
+        <circle className="dial-face" cx="90" cy="90" r="57" />
+        <path className="dial-range" d={arcPath(90, 90, 67, rangeStart, rangeEnd)} />
+        {[0, 25, 50, 75, 100].map(pct => {
+          const p1 = polarPoint(90, 90, 60, pctToDialAngle(pct));
+          const p2 = polarPoint(90, 90, pct === 0 || pct === 100 ? 69 : 66, pctToDialAngle(pct));
+          return <line key={pct} className="dial-tick" x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} />;
+        })}
+        <line className="dial-home-line" x1="90" y1="90" x2={home.x} y2={home.y} />
+        <line className="dial-arm" x1="90" y1="90" x2={arm.x} y2={arm.y} />
+        <circle className="dial-hub" cx="90" cy="90" r="16" />
+        <circle className="dial-bolt" cx="90" cy="90" r="4" />
+        <circle className="dial-home-dot" cx={home.x} cy={home.y} r="4" />
+        <circle className="dial-current-dot" cx={current.x} cy={current.y} r="5" />
+        <text className="dial-zero" x="33" y="150">0%</text>
+        <text className="dial-full" x="126" y="150">100%</text>
+      </svg>
+      <div className="robotis-dial-readout">
+        <span><b>{currentRaw}</b> cnt</span>
+        <span>{currentPct.toFixed(1)}%</span>
+        <span>{motorDirection(row)}</span>
+      </div>
+    </div>
+  );
+}
+
 function validateMotorRows(rows) {
   const errors = [];
   const ids = new Set();
@@ -205,6 +265,7 @@ function TabMotorSettings() {
               <>
                 <KV k="Joint" v={selectedRow.joint_name} />
                 <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
+                <RobotisDial row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
                 <MotorRangeBar row={selectedRow} currentRaw={(s.motors[selectedRow.joint_name] || {}).raw || selectedRow.raw_home} />
                 <div className="angle-grid">
                   <div className="field"><label>0% 각도</label><input className="ninput tnum" type="number" value={selectedRow.min_angle_deg} onChange={e => updateRow(selected, numberPatch('min_angle_deg', e.target.value))} /></div>
