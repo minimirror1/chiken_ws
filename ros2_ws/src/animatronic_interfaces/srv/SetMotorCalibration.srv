@@ -1,0 +1,6 @@
+bool apply
+MotorCalibration[] calibrations
+---
+bool success
+string message
+string[] errors

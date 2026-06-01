@@ -15,9 +15,11 @@ from animatronic_interfaces.msg import (
     JointTarget,
     JointTargets,
     Mode,
+    MotorCalibration,
     MotionStatus,
     MotorDiagnosticsArray,
 )
+from animatronic_interfaces.srv import SetMotorCalibration
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -70,6 +72,22 @@ class JointPositions(BaseModel):
     positions: dict[str, float]  # joint_name -> degrees
 
 
+class MotorCalibrationItem(BaseModel):
+    joint_name: str
+    id: int
+    model: str
+    raw_0_percent: int
+    raw_home: int
+    raw_100_percent: int
+    min_angle_deg: float = -100.0
+    home_angle_deg: float = 0.0
+    max_angle_deg: float = 100.0
+
+
+class MotorCalibrationDocument(BaseModel):
+    calibrations: list[MotorCalibrationItem]
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return min(max(value, minimum), maximum)
 
@@ -87,6 +105,65 @@ def ros_message_to_dict(message: Any) -> Any:
     if isinstance(message, (list, tuple)):
         return [ros_message_to_dict(value) for value in message]
     return message
+
+
+def motor_config_path() -> Path:
+    return Path(get_package_share_directory("chicken_bringup")) / "config" / "motors.yaml"
+
+
+def read_motor_calibrations(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    params = data.get("/**", {}).get("ros__parameters", {})
+    joint_names = params.get("joint_names", [])
+    joints = params.get("joints", {})
+    calibrations = []
+    for name in joint_names:
+        item = joints.get(name, {})
+        if not item:
+            continue
+        calibrations.append({
+            "joint_name": name,
+            "id": int(item.get("id", 0)),
+            "model": str(item.get("model", "")),
+            "raw_0_percent": int(item.get("raw_min", 0)),
+            "raw_home": int(item.get("raw_home", 0)),
+            "raw_100_percent": int(item.get("raw_max", 0)),
+            "min_angle_deg": float(item.get("min_angle_deg", -100.0)),
+            "home_angle_deg": float(item.get("home_angle_deg", 0.0)),
+            "max_angle_deg": float(item.get("max_angle_deg", 100.0)),
+        })
+    return calibrations
+
+
+def write_motor_calibrations(path: Path, document: MotorCalibrationDocument) -> None:
+    data = {
+        "/**": {
+            "ros__parameters": {
+                "mock_mode": False,
+                "port": "/dev/ttyUSB0",
+                "baudrate": 1000000,
+                "protocol_version": 2.0,
+                "joint_names": [item.joint_name for item in document.calibrations],
+                "joints": {},
+            }
+        }
+    }
+    joints = data["/**"]["ros__parameters"]["joints"]
+    for item in document.calibrations:
+        joints[item.joint_name] = {
+            "id": int(item.id),
+            "model": item.model,
+            "raw_min": int(item.raw_0_percent),
+            "raw_home": int(item.raw_home),
+            "raw_max": int(item.raw_100_percent),
+            "min_angle_deg": float(item.min_angle_deg),
+            "home_angle_deg": float(item.home_angle_deg),
+            "max_angle_deg": float(item.max_angle_deg),
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
 
 
 class WebBridgeNode(Node):
@@ -123,6 +200,10 @@ class WebBridgeNode(Node):
         self.target_joints_pub = self.create_publisher(JointTargets, self.topic("target_joints"), 10)
         self.motor_home_client = self.create_client(Trigger, self.topic("motor/home"))
         self.motor_stop_client = self.create_client(Trigger, self.topic("motor/stop"))
+        self.motor_calibration_client = self.create_client(
+            SetMotorCalibration,
+            self.topic("motor/calibration"),
+        )
         self.motion_stop_client = self.create_client(Trigger, self.topic("motion/stop"))
         self.run_pattern_client = ActionClient(self, RunPattern, self.topic("run_pattern"))
 
@@ -150,6 +231,7 @@ class WebBridgeNode(Node):
                     "services": {
                         "motor_home": self.motor_home_client.service_is_ready(),
                         "motor_stop": self.motor_stop_client.service_is_ready(),
+                        "motor_calibration": self.motor_calibration_client.service_is_ready(),
                         "motion_stop": self.motion_stop_client.service_is_ready(),
                     },
                     "actions": {
@@ -228,6 +310,41 @@ class WebBridgeNode(Node):
         result = future.result()
         return {"success": bool(result.success), "message": result.message}
 
+    async def call_motor_calibration(
+        self,
+        document: MotorCalibrationDocument,
+        apply: bool,
+    ) -> dict[str, Any]:
+        client = self.motor_calibration_client
+        if not client.service_is_ready():
+            return {"success": False, "message": "motor/calibration service is not available", "errors": []}
+        request = SetMotorCalibration.Request()
+        request.apply = apply
+        for item in document.calibrations:
+            calibration = MotorCalibration()
+            calibration.joint_name = item.joint_name
+            calibration.id = int(item.id)
+            calibration.model = item.model
+            calibration.raw_0_percent = int(item.raw_0_percent)
+            calibration.raw_home = int(item.raw_home)
+            calibration.raw_100_percent = int(item.raw_100_percent)
+            calibration.min_angle_deg = float(item.min_angle_deg)
+            calibration.home_angle_deg = float(item.home_angle_deg)
+            calibration.max_angle_deg = float(item.max_angle_deg)
+            request.calibrations.append(calibration)
+        future = client.call_async(request)
+        deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not future.done():
+            if asyncio.get_running_loop().time() > deadline:
+                return {"success": False, "message": "motor/calibration service timed out", "errors": []}
+            await asyncio.sleep(0.02)
+        result = future.result()
+        return {
+            "success": bool(result.success),
+            "message": result.message,
+            "errors": list(result.errors),
+        }
+
     def _set_state(self, key: str, message: Any) -> None:
         with self._lock:
             self._state[key] = ros_message_to_dict(message)
@@ -297,6 +414,31 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     @app.post("/api/joints", dependencies=[Depends(require_password)])
     async def set_joints(request: JointPositions) -> dict[str, Any]:
         return node.publish_joint_positions(request.positions)
+
+    @app.get("/api/motor-config", dependencies=[Depends(require_password)])
+    async def get_motor_config() -> dict[str, Any]:
+        path = motor_config_path()
+        return {
+            "path": str(path),
+            "calibrations": read_motor_calibrations(path),
+        }
+
+    @app.post("/api/motor-config/validate", dependencies=[Depends(require_password)])
+    async def validate_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        return await node.call_motor_calibration(document, apply=False)
+
+    @app.post("/api/motor-config/apply", dependencies=[Depends(require_password)])
+    async def apply_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        return await node.call_motor_calibration(document, apply=True)
+
+    @app.put("/api/motor-config/save", dependencies=[Depends(require_password)])
+    async def save_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        validation = await node.call_motor_calibration(document, apply=False)
+        if not validation["success"]:
+            raise HTTPException(status_code=400, detail=validation)
+        path = motor_config_path()
+        write_motor_calibrations(path, document)
+        return {"success": True, "path": str(path)}
 
     @app.get("/api/patterns", dependencies=[Depends(require_password)])
     async def list_patterns() -> dict[str, Any]:

@@ -7,11 +7,12 @@ from typing import Dict, Iterable, List
 import rclpy
 from animatronic_interfaces.msg import (
     JointTargets,
+    MotorCalibration,
     MotorDiagnostic,
     MotorDiagnosticsArray,
     MotorStatus,
 )
-from animatronic_interfaces.srv import MotorCommand
+from animatronic_interfaces.srv import MotorCommand, SetMotorCalibration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -172,6 +173,9 @@ class DynamixelBackend:
     def failure_counts(self) -> dict[int, int]:
         return {}
 
+    def update_motor_configs(self, motor_configs: Iterable[MotorConfig]) -> None:
+        del motor_configs
+
 
 class MockDynamixelBackend(DynamixelBackend):
     def __init__(self, motor_configs: Iterable[MotorConfig]) -> None:
@@ -224,6 +228,16 @@ class MockDynamixelBackend(DynamixelBackend):
 
     def reboot(self, motor_id: int) -> bool:
         return any(config.motor_id == motor_id for config in self._configs)
+
+    def update_motor_configs(self, motor_configs: Iterable[MotorConfig]) -> None:
+        self._configs = list(motor_configs)
+        next_states = {}
+        for config in self._configs:
+            next_states[config.joint_name] = self._states.get(
+                config.joint_name,
+                MotorState(raw_position=config.home_raw),
+            )
+        self._states = next_states
 
 
 class RealDynamixelBackend(DynamixelBackend):
@@ -337,6 +351,19 @@ class RealDynamixelBackend(DynamixelBackend):
 
     def failure_counts(self) -> dict[int, int]:
         return dict(self._failure_counts)
+
+    def update_motor_configs(self, motor_configs: Iterable[MotorConfig]) -> None:
+        self._configs = list(motor_configs)
+        self._config_by_joint = {config.joint_name: config for config in self._configs}
+        self._config_by_id = {config.motor_id: config for config in self._configs}
+        self._failure_counts = {
+            config.motor_id: self._failure_counts.get(config.motor_id, 0)
+            for config in self._configs
+        }
+        self._last_errors = {
+            config.motor_id: self._last_errors.get(config.motor_id, "")
+            for config in self._configs
+        }
 
     def _ping(self, motor_id: int) -> bool:
         _model_number, result, error = self._packet_handler.ping(
@@ -510,7 +537,9 @@ def unsigned_bytes(value: int, byte_len: int) -> list[int]:
 
 
 def clamp(value: int, minimum: int, maximum: int) -> int:
-    return max(minimum, min(maximum, value))
+    lo = min(minimum, maximum)
+    hi = max(minimum, maximum)
+    return max(lo, min(hi, value))
 
 
 def normalized_to_raw(normalized_value: float, config: MotorConfig) -> int:
@@ -523,13 +552,13 @@ def normalized_to_raw(normalized_value: float, config: MotorConfig) -> int:
 
 
 def raw_to_angle_deg(raw_position: int, config: MotorConfig) -> float:
-    if raw_position >= config.home_raw:
-        span = max(1, config.max_raw - config.home_raw)
-        ratio = (raw_position - config.home_raw) / span
+    max_span = config.max_raw - config.home_raw
+    min_span = config.min_raw - config.home_raw
+    if max_span and (raw_position - config.home_raw) * max_span >= 0:
+        ratio = (raw_position - config.home_raw) / max_span
         return config.home_angle_deg + (config.max_angle_deg - config.home_angle_deg) * ratio
-    span = max(1, config.home_raw - config.min_raw)
-    ratio = (config.home_raw - raw_position) / span
-    return config.home_angle_deg - (config.home_angle_deg - config.min_angle_deg) * ratio
+    ratio = 0.0 if min_span == 0 else (raw_position - config.home_raw) / min_span
+    return config.home_angle_deg + (config.min_angle_deg - config.home_angle_deg) * ratio
 
 
 def angle_to_raw(angle_deg: float, config: MotorConfig) -> int:
@@ -540,7 +569,7 @@ def angle_to_raw(angle_deg: float, config: MotorConfig) -> int:
         return int(round(config.home_raw + (config.max_raw - config.home_raw) * ratio))
     span = config.home_angle_deg - config.min_angle_deg
     ratio = 0.0 if span == 0.0 else (config.home_angle_deg - angle) / span
-    return int(round(config.home_raw - (config.home_raw - config.min_raw) * ratio))
+    return int(round(config.home_raw + (config.min_raw - config.home_raw) * ratio))
 
 
 def normalize_namespace(namespace: str) -> str:
@@ -608,6 +637,11 @@ class MotorNode(Node):
             MotorCommand,
             f"{namespace}/motor/reboot",
             self._on_reboot,
+        )
+        self.create_service(
+            SetMotorCalibration,
+            f"{namespace}/motor/calibration",
+            self._on_set_calibration,
         )
 
         state_period = 1.0 / float(self.get_parameter("state_publish_rate_hz").value)
@@ -798,6 +832,98 @@ class MotorNode(Node):
             response.success = False
             response.message = str(exc)
         return response
+
+    def _on_set_calibration(
+        self,
+        request: SetMotorCalibration.Request,
+        response: SetMotorCalibration.Response,
+    ):
+        configs, errors = self._configs_from_calibrations(request.calibrations)
+        response.errors = errors
+        if errors:
+            response.success = False
+            response.message = "Invalid motor calibration"
+            return response
+        if not request.apply:
+            response.success = True
+            response.message = "Motor calibration is valid"
+            return response
+        if self._torque_enabled:
+            response.success = False
+            response.message = "Disable torque before applying motor calibration"
+            return response
+
+        self._motor_configs = configs
+        self._config_by_joint = {
+            config.joint_name: config for config in self._motor_configs
+        }
+        self._backend.update_motor_configs(self._motor_configs)
+        response.success = True
+        response.message = f"Applied calibration for {len(configs)} motors"
+        return response
+
+    def _configs_from_calibrations(
+        self,
+        calibrations: Iterable[MotorCalibration],
+    ) -> tuple[list[MotorConfig], list[str]]:
+        configs: list[MotorConfig] = []
+        errors: list[str] = []
+        seen_joints: set[str] = set()
+        seen_ids: set[int] = set()
+        for calibration in calibrations:
+            joint_name = str(calibration.joint_name).strip()
+            if not joint_name:
+                errors.append("joint_name is required")
+                continue
+            if joint_name in seen_joints:
+                errors.append(f"{joint_name}: duplicate joint_name")
+                continue
+            seen_joints.add(joint_name)
+            motor_id = int(calibration.id)
+            if motor_id in seen_ids:
+                errors.append(f"{joint_name}: duplicate motor id {motor_id}")
+                continue
+            seen_ids.add(motor_id)
+            try:
+                profile = profile_for_model(str(calibration.model))
+            except ValueError as exc:
+                errors.append(f"{joint_name}: {exc}")
+                continue
+            raw_0 = int(calibration.raw_0_percent)
+            raw_home = int(calibration.raw_home)
+            raw_100 = int(calibration.raw_100_percent)
+            if raw_0 == raw_100:
+                errors.append(f"{joint_name}: 0% and 100% counts must differ")
+            raw_lo = min(raw_0, raw_100)
+            raw_hi = max(raw_0, raw_100)
+            if raw_home < raw_lo or raw_home > raw_hi:
+                errors.append(f"{joint_name}: home count must be inside 0%..100% range")
+            if raw_lo < profile.raw_min or raw_hi > profile.raw_max:
+                errors.append(
+                    f"{joint_name}: counts must stay inside {profile.raw_min}..{profile.raw_max}"
+                )
+            min_angle = float(calibration.min_angle_deg)
+            home_angle = float(calibration.home_angle_deg)
+            max_angle = float(calibration.max_angle_deg)
+            if min_angle == max_angle:
+                errors.append(f"{joint_name}: min and max angles must differ")
+            configs.append(
+                MotorConfig(
+                    joint_name=joint_name,
+                    motor_id=motor_id,
+                    model=profile.name,
+                    min_raw=raw_0,
+                    home_raw=raw_home,
+                    max_raw=raw_100,
+                    min_angle_deg=min_angle,
+                    home_angle_deg=home_angle,
+                    max_angle_deg=max_angle,
+                    profile=profile,
+                )
+            )
+        if not configs:
+            errors.append("at least one motor calibration is required")
+        return configs, errors
 
     def _publish_diagnostics_and_status(self) -> None:
         try:

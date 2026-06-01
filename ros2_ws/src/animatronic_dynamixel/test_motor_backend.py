@@ -67,6 +67,44 @@ class ConversionTest(unittest.TestCase):
         self.assertAlmostEqual(raw_to_angle_deg(2048, config), 0.0)
         self.assertAlmostEqual(raw_to_angle_deg(3072, config), 45.0)
 
+    def test_reversed_percent_mapping(self):
+        config = MotorConfig(
+            joint_name="upper_yaw",
+            motor_id=2,
+            model="XM430-W350-R",
+            min_raw=3500,
+            home_raw=1700,
+            max_raw=1000,
+            min_angle_deg=-30.0,
+            home_angle_deg=0.0,
+            max_angle_deg=30.0,
+            profile=PROFILES["XM430-W350-R"],
+        )
+        self.assertEqual(normalized_to_raw(-100.0, config), 3500)
+        self.assertEqual(normalized_to_raw(0.0, config), 1700)
+        self.assertEqual(normalized_to_raw(100.0, config), 1000)
+        self.assertAlmostEqual(raw_to_angle_deg(3500, config), -30.0)
+        self.assertAlmostEqual(raw_to_angle_deg(1700, config), 0.0)
+        self.assertAlmostEqual(raw_to_angle_deg(1000, config), 30.0)
+
+    def test_asymmetric_home_count_is_allowed(self):
+        config = MotorConfig(
+            joint_name="lower_pitch",
+            motor_id=1,
+            model="XM430-W350-R",
+            min_raw=1000,
+            home_raw=1700,
+            max_raw=3500,
+            min_angle_deg=-20.0,
+            home_angle_deg=0.0,
+            max_angle_deg=20.0,
+            profile=PROFILES["XM430-W350-R"],
+        )
+        self.assertEqual(normalized_to_raw(-100.0, config), 1000)
+        self.assertEqual(normalized_to_raw(0.0, config), 1700)
+        self.assertEqual(normalized_to_raw(100.0, config), 3500)
+        self.assertEqual(config.home_raw, 1700)
+
     def test_signed_value(self):
         self.assertEqual(signed_value(0x0001, 2), 1)
         self.assertEqual(signed_value(0xFFFF, 2), -1)

@@ -647,6 +647,131 @@ body {
 .field .hint { font-size: 10px; color: var(--tx-3); }
 select.ninput { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2361707a'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; padding-right: 24px; }
 
+/* ============================================================
+   MOTOR SETUP
+   ============================================================ */
+.motorcfg {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+.motorcfg-head {
+  display: grid;
+  grid-template-columns: minmax(360px, .9fr) minmax(520px, 1.3fr);
+  gap: 12px;
+}
+.motorcfg-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.motorcfg-body {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(720px, 1fr) 360px;
+  gap: 12px;
+}
+.motorcfg-side {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+.motor-map th,
+.motor-map td {
+  vertical-align: middle;
+}
+.motor-map tr.sel td {
+  background: var(--cy-dim);
+}
+.motor-map .ninput {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+.motor-map .smnum {
+  width: 54px;
+  margin-left: auto;
+}
+.motor-map .cnt {
+  width: 86px;
+  margin-left: auto;
+}
+.motor-range {
+  display: grid;
+  gap: 8px;
+}
+.motor-range-track {
+  position: relative;
+  height: 28px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r);
+  background:
+    linear-gradient(90deg, var(--cy-dim), rgba(82,214,163,.15)),
+    var(--bg-2);
+}
+.motor-range-track.rev {
+  background:
+    linear-gradient(90deg, rgba(227,171,70,.18), var(--cy-dim)),
+    var(--bg-2);
+}
+.motor-range-track::before,
+.motor-range-track::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--line-2);
+}
+.motor-range-track::before { left: 0; }
+.motor-range-track::after { right: 0; }
+.motor-range .mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  transform: translateX(-1px);
+}
+.motor-range .mark.home {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn-dim);
+}
+.motor-range .mark.current {
+  width: 8px;
+  top: 0;
+  bottom: 0;
+  border: 1px solid #fff;
+  background: var(--cy);
+  box-shadow: 0 0 10px var(--cy-glow);
+}
+.motor-range-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx-2);
+}
+.motor-range-labels b {
+  color: var(--tx-0);
+  font-weight: 500;
+}
+.angle-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.motor-error {
+  border: 1px solid rgba(230,95,80,.38);
+  border-radius: var(--r);
+  background: var(--err-dim);
+  color: var(--err);
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
 /* fade-in */
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .tabpane { opacity: 1; }

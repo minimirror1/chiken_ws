@@ -1,0 +1,9 @@
+string joint_name
+uint8 id
+string model
+int32 raw_0_percent
+int32 raw_home
+int32 raw_100_percent
+float32 min_angle_deg
+float32 home_angle_deg
+float32 max_angle_deg

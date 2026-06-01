@@ -11,6 +11,11 @@ const JOINTS = [
   { id: 'upper_pitch', kr: '상부 끄덕', axis: 'x', max: 48, soft: 42 },
 ];
 const JOINT_IDS = JOINTS.map(j => j.id);
+const DEFAULT_MOTOR_CONFIG = [
+  { joint_name: 'lower_pitch', id: 1, model: 'XM430-W350-R', raw_0_percent: 1820, raw_home: 2048, raw_100_percent: 2276, min_angle_deg: -20, home_angle_deg: 0, max_angle_deg: 20 },
+  { joint_name: 'upper_yaw', id: 2, model: 'XM430-W350-R', raw_0_percent: 1707, raw_home: 2048, raw_100_percent: 2389, min_angle_deg: -30, home_angle_deg: 0, max_angle_deg: 30 },
+  { joint_name: 'upper_pitch', id: 3, model: 'XM430-W350-R', raw_0_percent: 1820, raw_home: 2048, raw_100_percent: 2276, min_angle_deg: -20, home_angle_deg: 0, max_angle_deg: 20 },
+];
 
 // value(-100..100) -> degrees
 function valToDeg(jid, v) {
@@ -104,6 +109,8 @@ const Store = {
       nearestId: 3,
     },
     motors: initMotors(),
+    motorConfig: DEFAULT_MOTOR_CONFIG,
+    motorConfigPath: '',
     ros: { connected: true, node: 'chicken_controller', services: true, actions: true, hz: 50, latency: 6 },
     logs: SEED_LOGS.map((l, i) => ({ ...l, id: 'l' + i, t: nowHMS(new Date(Date.now() - (SEED_LOGS.length - i) * 3400)) })),
     patterns: SEED_PATTERNS,
@@ -258,6 +265,7 @@ function useStore() {
 
 window.Store = Store;
 window.useStore = useStore;
+window.DEFAULT_MOTOR_CONFIG = DEFAULT_MOTOR_CONFIG;
 window.JOINTS = JOINTS;
 window.JOINT_IDS = JOINT_IDS;
 window.defaultTangent = defaultTangent;
@@ -389,12 +397,13 @@ window.RosBridge = (function() {
     },
 
     async api(path, options = {}) {
-      const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+      const headers = Object.assign({}, options.headers || {});
+      if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
       if (this.password) headers['X-Animatronic-Password'] = this.password;
-      try {
-        const r = await fetch(path, Object.assign({}, options, { headers }));
-        return await r.json();
-      } catch(e) { return null; }
+      const r = await fetch(path, Object.assign({}, options, { headers }));
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw data;
+      return data;
     },
 
     // 관절 위치 명령 (degrees)
