@@ -176,6 +176,9 @@ class DynamixelBackend:
     def failure_counts(self) -> dict[int, int]:
         return {}
 
+    def torque_enabled_by_id(self) -> dict[int, bool]:
+        return {}
+
     def update_motor_configs(self, motor_configs: Iterable[MotorConfig]) -> None:
         del motor_configs
 
@@ -249,6 +252,12 @@ class MockDynamixelBackend(DynamixelBackend):
             )
         self._states = next_states
 
+    def torque_enabled_by_id(self) -> dict[int, bool]:
+        return {
+            config.motor_id: self._states[config.joint_name].torque_enabled
+            for config in self._configs
+        }
+
 
 class RealDynamixelBackend(DynamixelBackend):
     def __init__(
@@ -272,7 +281,9 @@ class RealDynamixelBackend(DynamixelBackend):
         self._failure_counts = {config.motor_id: 0 for config in self._configs}
         self._last_errors = {config.motor_id: "" for config in self._configs}
         self._active_ids: set[int] = set()
-        self._torque_enabled = False
+        self._torque_enabled_by_id = {
+            config.motor_id: False for config in self._configs
+        }
 
     def connect(self) -> bool:
         if not self._port_handler.openPort():
@@ -295,7 +306,7 @@ class RealDynamixelBackend(DynamixelBackend):
                 1 if enabled else 0,
             )
             self._record_comm(config.motor_id, result, error, "torque enable")
-        self._torque_enabled = enabled
+            self._torque_enabled_by_id[config.motor_id] = enabled
 
     def set_motor_torque_enabled(self, motor_id: int, enabled: bool) -> bool:
         config = self._config_by_id.get(motor_id)
@@ -307,7 +318,10 @@ class RealDynamixelBackend(DynamixelBackend):
             config.profile.torque_enable_addr,
             1 if enabled else 0,
         )
-        return self._record_comm(config.motor_id, result, error, "torque enable")
+        ok = self._record_comm(config.motor_id, result, error, "torque enable")
+        if ok:
+            self._torque_enabled_by_id[config.motor_id] = enabled
+        return ok
 
     def write_joint_targets(self, targets: Dict[str, int]) -> None:
         if self.blocked_motor_ids():
@@ -340,7 +354,10 @@ class RealDynamixelBackend(DynamixelBackend):
             diagnostic.voltage_v = voltages.get(config.motor_id, 0.0)
             diagnostic.temperature_c = temperatures.get(config.motor_id, 0.0)
             diagnostic.load = loads.get(config.motor_id, 0.0)
-            diagnostic.torque_enabled = self._torque_enabled
+            diagnostic.torque_enabled = self._torque_enabled_by_id.get(
+                config.motor_id,
+                False,
+            )
             diagnostic.error_code = min(self._failure_counts.get(config.motor_id, 0), 255)
             diagnostic.error_message = self._last_errors.get(config.motor_id, "")
             diagnostics.append(diagnostic)
@@ -374,6 +391,9 @@ class RealDynamixelBackend(DynamixelBackend):
     def failure_counts(self) -> dict[int, int]:
         return dict(self._failure_counts)
 
+    def torque_enabled_by_id(self) -> dict[int, bool]:
+        return dict(self._torque_enabled_by_id)
+
     def update_motor_configs(self, motor_configs: Iterable[MotorConfig]) -> None:
         self._configs = list(motor_configs)
         self._config_by_joint = {config.joint_name: config for config in self._configs}
@@ -384,6 +404,10 @@ class RealDynamixelBackend(DynamixelBackend):
         }
         self._last_errors = {
             config.motor_id: self._last_errors.get(config.motor_id, "")
+            for config in self._configs
+        }
+        self._torque_enabled_by_id = {
+            config.motor_id: self._torque_enabled_by_id.get(config.motor_id, False)
             for config in self._configs
         }
 
@@ -880,6 +904,9 @@ class MotorNode(Node):
             elif command in {"torque_on", "torque_off"}:
                 enabled = command == "torque_on"
                 ok = self._backend.set_motor_torque_enabled(motor_id, enabled)
+                self._torque_enabled = any(
+                    self._backend.torque_enabled_by_id().values()
+                )
                 response.success = ok
                 response.message = (
                     f"Motor {motor_id} torque {'enabled' if enabled else 'disabled'}"
@@ -908,7 +935,7 @@ class MotorNode(Node):
             response.success = True
             response.message = "Motor calibration is valid"
             return response
-        if self._torque_enabled:
+        if any(self._backend.torque_enabled_by_id().values()):
             response.success = False
             response.message = "Disable torque before applying motor calibration"
             return response

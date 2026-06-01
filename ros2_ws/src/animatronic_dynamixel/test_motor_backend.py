@@ -134,6 +134,42 @@ class FailurePolicyTest(unittest.TestCase):
         diagnostic = backend.read_diagnostics()[0]
         self.assertEqual(diagnostic.raw_position, 1701)
 
+    def test_mock_backend_tracks_single_motor_torque(self):
+        configs = [
+            MotorConfig(
+                joint_name="lower_pitch",
+                motor_id=1,
+                model="XM430-W350-R",
+                min_raw=1000,
+                home_raw=1700,
+                max_raw=3500,
+                min_angle_deg=0.0,
+                home_angle_deg=149.5,
+                max_angle_deg=307.7,
+                profile=PROFILES["XM430-W350-R"],
+            ),
+            MotorConfig(
+                joint_name="upper_yaw",
+                motor_id=2,
+                model="XM430-W350-R",
+                min_raw=1000,
+                home_raw=1700,
+                max_raw=3500,
+                min_angle_deg=0.0,
+                home_angle_deg=149.5,
+                max_angle_deg=307.7,
+                profile=PROFILES["XM430-W350-R"],
+            ),
+        ]
+        backend = MockDynamixelBackend(configs)
+        self.assertTrue(backend.set_motor_torque_enabled(1, True))
+        diagnostics = {
+            diagnostic.id: diagnostic for diagnostic in backend.read_diagnostics()
+        }
+        self.assertTrue(diagnostics[1].torque_enabled)
+        self.assertFalse(diagnostics[2].torque_enabled)
+        self.assertEqual(backend.torque_enabled_by_id(), {1: True, 2: False})
+
     def test_threshold_constant_matches_policy(self):
         self.assertEqual(FAILURE_BLOCK_THRESHOLD, 5)
 
