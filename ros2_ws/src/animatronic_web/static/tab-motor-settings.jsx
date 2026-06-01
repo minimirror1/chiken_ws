@@ -23,8 +23,12 @@ function pctClamp(v) {
   return Math.max(0, Math.min(100, v));
 }
 
-function pctToDialAngle(pct) {
-  return -135 + pctClamp(pct) * 2.7;
+function rawToServoDeg(raw) {
+  return pctClamp((Number(raw) / 4095) * 100) * 3.6;
+}
+
+function rawToDialDeg(raw) {
+  return rawToServoDeg(raw) - 180;
 }
 
 function polarPoint(cx, cy, radius, deg) {
@@ -35,48 +39,59 @@ function polarPoint(cx, cy, radius, deg) {
   };
 }
 
-function arcPath(cx, cy, radius, startDeg, endDeg) {
+function dialArcPath(cx, cy, radius, startDeg, endDeg, reversed) {
+  const span = reversed
+    ? (startDeg - endDeg + 360) % 360
+    : (endDeg - startDeg + 360) % 360;
+  const large = span > 180 ? 1 : 0;
+  const sweep = reversed ? 0 : 1;
   const start = polarPoint(cx, cy, radius, startDeg);
   const end = polarPoint(cx, cy, radius, endDeg);
-  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
-  const sweep = endDeg >= startDeg ? 1 : 0;
   return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius} ${radius} 0 ${large} ${sweep} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
 }
 
 function RobotisDial({ row, currentRaw }) {
   const currentPct = countToPercent(row, currentRaw);
   const homePct = countToPercent(row, row.raw_home);
-  const currentAngle = pctToDialAngle(currentPct);
-  const homeAngle = pctToDialAngle(homePct);
+  const raw0Deg = rawToServoDeg(row.raw_0_percent);
+  const raw100Deg = rawToServoDeg(row.raw_100_percent);
+  const raw0Dial = rawToDialDeg(row.raw_0_percent);
+  const raw100Dial = rawToDialDeg(row.raw_100_percent);
+  const currentAngle = rawToDialDeg(currentRaw);
+  const homeAngle = rawToDialDeg(row.raw_home);
   const arm = polarPoint(90, 90, 47, currentAngle);
   const home = polarPoint(90, 90, 57, homeAngle);
   const current = polarPoint(90, 90, 65, currentAngle);
-  const rangeStart = motorDirection(row) === '역방향' ? 135 : -135;
-  const rangeEnd = motorDirection(row) === '역방향' ? -135 : 135;
+  const reversed = motorDirection(row) === '역방향';
 
   return (
     <div className="robotis-dial">
       <svg viewBox="0 0 180 180" aria-label="ROBOTIS style virtual dial">
         <circle className="dial-case" cx="90" cy="90" r="72" />
         <circle className="dial-face" cx="90" cy="90" r="57" />
-        <path className="dial-range" d={arcPath(90, 90, 67, rangeStart, rangeEnd)} />
-        {[0, 25, 50, 75, 100].map(pct => {
-          const p1 = polarPoint(90, 90, 60, pctToDialAngle(pct));
-          const p2 = polarPoint(90, 90, pct === 0 || pct === 100 ? 69 : 66, pctToDialAngle(pct));
-          return <line key={pct} className="dial-tick" x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} />;
+        <path className={`dial-range ${reversed ? 'rev' : ''}`} d={dialArcPath(90, 90, 67, raw0Dial, raw100Dial, reversed)} />
+        {[0, 90, 180, 270, 360].map(deg => {
+          const dialDeg = deg - 180;
+          const p1 = polarPoint(90, 90, 60, dialDeg);
+          const p2 = polarPoint(90, 90, deg % 180 === 0 ? 70 : 66, dialDeg);
+          return <line key={deg} className="dial-tick" x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} />;
         })}
+        <text className="dial-label top" x="90" y="19">180°</text>
+        <text className="dial-label right" x="151" y="94">270°</text>
+        <text className="dial-label bottom" x="90" y="166">0/360°</text>
+        <text className="dial-label left" x="24" y="94">90°</text>
         <line className="dial-home-line" x1="90" y1="90" x2={home.x} y2={home.y} />
         <line className="dial-arm" x1="90" y1="90" x2={arm.x} y2={arm.y} />
         <circle className="dial-hub" cx="90" cy="90" r="16" />
         <circle className="dial-bolt" cx="90" cy="90" r="4" />
         <circle className="dial-home-dot" cx={home.x} cy={home.y} r="4" />
         <circle className="dial-current-dot" cx={current.x} cy={current.y} r="5" />
-        <text className="dial-zero" x="33" y="150">0%</text>
-        <text className="dial-full" x="126" y="150">100%</text>
       </svg>
       <div className="robotis-dial-readout">
         <span><b>{currentRaw}</b> cnt</span>
+        <span>{rawToServoDeg(currentRaw).toFixed(1)}° raw</span>
         <span>{currentPct.toFixed(1)}%</span>
+        <span>{raw0Deg.toFixed(1)}° → {raw100Deg.toFixed(1)}°</span>
         <span>{motorDirection(row)}</span>
       </div>
     </div>
@@ -117,9 +132,9 @@ function MotorRangeBar({ row, currentRaw }) {
         <span className="mark current" style={{ left: curPct + '%' }} title="현재 위치"></span>
       </div>
       <div className="motor-range-labels">
-        <span>0% <b>{row.raw_0_percent}</b></span>
-        <span>정자세 <b>{row.raw_home}</b> / {homePct.toFixed(1)}%</span>
-        <span>100% <b>{row.raw_100_percent}</b></span>
+        <span>0% <b>{row.raw_0_percent}</b> / {rawToServoDeg(row.raw_0_percent).toFixed(1)}°</span>
+        <span>정자세 <b>{row.raw_home}</b> / {rawToServoDeg(row.raw_home).toFixed(1)}° / {homePct.toFixed(1)}%</span>
+        <span>100% <b>{row.raw_100_percent}</b> / {rawToServoDeg(row.raw_100_percent).toFixed(1)}°</span>
       </div>
     </div>
   );

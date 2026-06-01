@@ -737,6 +737,10 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke-linecap: round;
   filter: drop-shadow(0 0 4px var(--cy-glow));
 }
+.dial-range.rev {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 4px var(--warn-dim));
+}
 .dial-tick {
   stroke: var(--tx-2);
   stroke-width: 2;
@@ -773,11 +777,12 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke-width: 1.5;
   filter: drop-shadow(0 0 5px var(--cy-glow));
 }
-.dial-zero,
-.dial-full {
+.dial-label {
   fill: var(--tx-2);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9px;
+  text-anchor: middle;
+  dominant-baseline: middle;
 }
 .robotis-dial-readout {
   display: grid;
