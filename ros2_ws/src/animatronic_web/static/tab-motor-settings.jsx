@@ -149,9 +149,12 @@ function MotorRangeBar({ row, currentRaw }) {
 function MotorRawControl({ row, currentRaw, commandRaw }) {
   const [input, setInput] = React.useState(String(currentRaw));
   const holdRef = React.useRef(null);
+  const currentRef = React.useRef(currentRaw);
 
   React.useEffect(() => {
-    setInput(String(currentRaw));
+    const next = clampRawForRow(row, currentRaw);
+    currentRef.current = next;
+    setInput(String(next));
   }, [currentRaw, row && row.joint_name]);
 
   React.useEffect(() => () => {
@@ -159,11 +162,13 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
   }, []);
 
   const step = (delta) => {
-    const next = clampRawForRow(row, Number(input) + delta);
+    const next = clampRawForRow(row, Number(currentRef.current) + delta);
+    currentRef.current = next;
     setInput(String(next));
     commandRaw(next);
   };
   const startHold = (delta) => {
+    currentRef.current = clampRawForRow(row, input);
     step(delta);
     if (holdRef.current) clearInterval(holdRef.current);
     holdRef.current = setInterval(() => step(delta), 90);
@@ -174,6 +179,7 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
   };
   const commit = () => {
     const next = clampRawForRow(row, input);
+    currentRef.current = next;
     setInput(String(next));
     commandRaw(next);
   };
@@ -183,28 +189,29 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
       <button
         type="button"
         className="raw-step"
-        onMouseDown={() => startHold(-1)}
-        onMouseUp={stopHold}
-        onMouseLeave={stopHold}
-        onTouchStart={e => { e.preventDefault(); startHold(-1); }}
-        onTouchEnd={stopHold}
+        onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); startHold(-1); }}
+        onPointerUp={stopHold}
+        onPointerCancel={stopHold}
+        onLostPointerCapture={stopHold}
         title="-1 raw count"
       >←</button>
       <input
         className="ninput tnum raw-current"
         value={input}
-        onChange={e => setInput(e.target.value)}
+        onChange={e => {
+          setInput(e.target.value);
+          currentRef.current = e.target.value;
+        }}
         onKeyDown={e => { if (e.key === 'Enter') commit(); }}
         onBlur={commit}
       />
       <button
         type="button"
         className="raw-step"
-        onMouseDown={() => startHold(1)}
-        onMouseUp={stopHold}
-        onMouseLeave={stopHold}
-        onTouchStart={e => { e.preventDefault(); startHold(1); }}
-        onTouchEnd={stopHold}
+        onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); startHold(1); }}
+        onPointerUp={stopHold}
+        onPointerCancel={stopHold}
+        onLostPointerCapture={stopHold}
         title="+1 raw count"
       >→</button>
     </div>
