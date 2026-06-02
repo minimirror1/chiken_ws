@@ -116,6 +116,27 @@ def motor_config_path() -> Path:
     return Path(get_package_share_directory("chicken_bringup")) / "config" / "motors.yaml"
 
 
+def source_motor_config_path() -> Path | None:
+    candidates = [Path.cwd(), *Path(__file__).resolve().parents]
+    for base in candidates:
+        path = base / "src" / "chicken_bringup" / "config" / "motors.yaml"
+        if path.exists():
+            return path
+    return None
+
+
+def motor_config_read_path() -> Path:
+    return source_motor_config_path() or motor_config_path()
+
+
+def motor_config_write_paths() -> list[Path]:
+    paths = [motor_config_path()]
+    source_path = source_motor_config_path()
+    if source_path is not None and source_path not in paths:
+        paths.append(source_path)
+    return paths
+
+
 def read_motor_calibrations(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -472,7 +493,7 @@ def create_app(node: WebBridgeNode) -> FastAPI:
 
     @app.get("/api/motor-config", dependencies=[Depends(require_password)])
     async def get_motor_config() -> dict[str, Any]:
-        path = motor_config_path()
+        path = motor_config_read_path()
         return {
             "path": str(path),
             "calibrations": read_motor_calibrations(path),
@@ -491,12 +512,14 @@ def create_app(node: WebBridgeNode) -> FastAPI:
         applied = await node.call_motor_calibration(document, apply=True)
         if not applied["success"]:
             raise HTTPException(status_code=400, detail=applied)
-        path = motor_config_path()
-        write_motor_calibrations(path, document)
+        paths = motor_config_write_paths()
+        for path in paths:
+            write_motor_calibrations(path, document)
         return {
             "success": True,
             "message": f"{applied['message']}; saved to YAML",
-            "path": str(path),
+            "path": str(paths[-1]),
+            "saved_paths": [str(path) for path in paths],
         }
 
     @app.get("/api/patterns", dependencies=[Depends(require_password)])

@@ -354,7 +354,7 @@ function TabMotorSettings() {
       setRemoteErrors(res.errors || []);
       setMessage(res.message || (res.success ? '완료' : '실패'));
       if (res.success && label !== '검증') {
-        Store.set({ motorConfig: cloneMotorConfig(rows) });
+        Store.set({ motorConfig: cloneMotorConfig(rows), motorConfigPath: res.path || s.motorConfigPath });
       }
     } catch (e) {
       const detail = e && e.detail ? e.detail : e;
