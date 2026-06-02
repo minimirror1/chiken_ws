@@ -22,6 +22,45 @@ function calibrationRows(rows) {
   }));
 }
 
+function duplicateFields(rows) {
+  const jointCounts = {};
+  const idCounts = {};
+  rows.forEach(row => {
+    const name = String(row.joint_name || '').trim();
+    const id = String(parseInt(row.id || 0));
+    if (name) jointCounts[name] = (jointCounts[name] || 0) + 1;
+    if (id !== '0' && id !== 'NaN') idCounts[id] = (idCounts[id] || 0) + 1;
+  });
+  return rows.map(row => {
+    const name = String(row.joint_name || '').trim();
+    const id = String(parseInt(row.id || 0));
+    return {
+      joint: !!name && jointCounts[name] > 1,
+      id: id !== '0' && id !== 'NaN' && idCounts[id] > 1,
+    };
+  });
+}
+
+function newMotorRow(rows) {
+  const usedJoints = new Set(rows.map(r => String(r.joint_name || '').trim()).filter(Boolean));
+  const nextJoint = JOINT_IDS.find(id => !usedJoints.has(id)) || '';
+  const maxId = rows.reduce((max, row) => {
+    const id = Number(row.id);
+    return Number.isFinite(id) ? Math.max(max, id) : max;
+  }, 0);
+  return {
+    joint_name: nextJoint,
+    id: maxId + 1,
+    model: MOTOR_MODELS[0],
+    raw_0_percent: 0,
+    raw_home: 2048,
+    raw_100_percent: 4095,
+    min_angle_deg: 0,
+    home_angle_deg: 180,
+    max_angle_deg: 360,
+  };
+}
+
 function motorDirection(row) {
   return Number(row.raw_100_percent) >= Number(row.raw_0_percent) ? '정방향' : '역방향';
 }
@@ -264,6 +303,7 @@ function TabMotorSettings() {
   const errors = [...localErrors, ...remoteErrors];
   const activeCalibration = calibrationRows(s.motorConfig || []);
   const editedCalibration = calibrationRows(rows);
+  const duplicates = duplicateFields(rows);
   const dirty = JSON.stringify(editedCalibration) !== JSON.stringify(activeCalibration);
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
@@ -280,6 +320,25 @@ function TabMotorSettings() {
     setRows(rs => rs.map((r, i) => i === index ? { ...r, ...patch } : r));
     setRemoteErrors([]);
     setMessage('');
+  };
+  const addRow = () => {
+    const row = newMotorRow(rows);
+    setRows(rs => [...rs, row]);
+    setSelected(rows.length);
+    setRemoteErrors([]);
+    setMessage('모터 매핑 줄 추가됨');
+  };
+  const deleteRow = (index) => {
+    const row = rows[index];
+    if (rows.length <= 1) {
+      setMessage('최소 1개 모터 매핑이 필요합니다.');
+      return;
+    }
+    if (!window.confirm(`${row.joint_name || '새 모터'} 매핑 줄을 삭제할까요?`)) return;
+    setRows(rs => rs.filter((_, i) => i !== index));
+    setSelected(current => Math.min(current === index ? Math.max(0, index - 1) : current, rows.length - 2));
+    setRemoteErrors([]);
+    setMessage('모터 매핑 줄 삭제됨');
   };
   const numberPatch = (key, value) => ({ [key]: parseFloat(value || '0') });
   const document = () => ({ calibrations: editedCalibration });
@@ -375,6 +434,7 @@ function TabMotorSettings() {
           bodyClass="pad-0"
           right={
             <span className="motor-map-summary">
+              <Btn kind="ghost" size="sm" icon="plus" disabled={!!busy} onClick={addRow}>추가</Btn>
               <Badge kind="cy">MOTORS {rows.length}</Badge>
               <Badge kind={reversed ? 'warn' : 'cy'}>REVERSED {reversed}</Badge>
               <Badge kind={errors.length ? 'err' : 'ok'}>ERRORS {errors.length}</Badge>
@@ -387,7 +447,7 @@ function TabMotorSettings() {
               <tr>
                 <th>JOINT</th><th className="num">ID</th><th>MODEL</th>
                 <th className="num">0% CNT</th><th className="num">정자세</th><th className="num">100% CNT</th>
-                <th>방향</th><th className="num">현재</th><th className="num">%</th><th>상태</th>
+                <th>방향</th><th className="num">현재</th><th className="num">%</th><th>상태</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -396,10 +456,19 @@ function TabMotorSettings() {
                 const currentRaw = motor.raw !== undefined ? motor.raw : row.raw_home;
                 const pct = countToPercent(row, currentRaw);
                 const rowErrors = validateMotorRows([row]);
+                const duplicate = duplicates[i] || {};
+                const rowHasError = rowErrors.length || duplicate.joint || duplicate.id;
                 return (
                   <tr key={i} className={selected === i ? 'sel' : ''} onClick={() => setSelected(i)}>
-                    <td><input className="ninput mono" value={row.joint_name} onChange={e => updateRow(i, { joint_name: e.target.value })} /></td>
-                    <td className="num"><input className="ninput tnum smnum" type="number" value={row.id} onChange={e => updateRow(i, numberPatch('id', e.target.value))} /></td>
+                    <td>
+                      <input
+                        className={`ninput mono ${duplicate.joint ? 'dup' : ''}`}
+                        list="motor-joint-options"
+                        value={row.joint_name}
+                        onChange={e => updateRow(i, { joint_name: e.target.value })}
+                      />
+                    </td>
+                    <td className="num"><input className={`ninput tnum smnum ${duplicate.id ? 'dup' : ''}`} type="number" value={row.id} onChange={e => updateRow(i, numberPatch('id', e.target.value))} /></td>
                     <td>
                       <select className="ninput" value={row.model} onChange={e => updateRow(i, { model: e.target.value })}>
                         {MOTOR_MODELS.map(model => <option key={model} value={model}>{model}</option>)}
@@ -411,12 +480,25 @@ function TabMotorSettings() {
                     <td><Badge kind={motorDirection(row) === '역방향' ? 'warn' : 'cy'}>{motorDirection(row)}</Badge></td>
                     <td className="num">{currentRaw}</td>
                     <td className="num" style={{ color: pct < 0 || pct > 100 ? 'var(--err)' : 'var(--cy)' }}>{pct.toFixed(1)}%</td>
-                    <td><Badge kind={rowErrors.length ? 'err' : 'ok'}>{rowErrors.length ? 'ERROR' : 'OK'}</Badge></td>
+                    <td><Badge kind={rowHasError ? 'err' : 'ok'}>{rowHasError ? 'ERROR' : 'OK'}</Badge></td>
+                    <td className="motor-map-actions">
+                      <button
+                        type="button"
+                        className="icon-btn danger"
+                        title="매핑 줄 삭제"
+                        onClick={e => { e.stopPropagation(); deleteRow(i); }}
+                      >
+                        <Icon name="trash" />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+          <datalist id="motor-joint-options">
+            {JOINT_IDS.map(id => <option key={id} value={id} />)}
+          </datalist>
         </Panel>
       </div>
 

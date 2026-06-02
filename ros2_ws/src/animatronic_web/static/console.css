@@ -714,6 +714,11 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   padding: 4px 7px;
   font-size: 11px;
 }
+.motor-map .ninput.dup {
+  border-color: rgba(230,95,80,.72);
+  background: rgba(230,95,80,.13);
+  color: var(--tx-0);
+}
 .motor-map .smnum {
   width: 54px;
   margin-left: auto;
@@ -721,6 +726,32 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motor-map .cnt {
   width: 86px;
   margin-left: auto;
+}
+.motor-map-actions {
+  width: 34px;
+  text-align: right;
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-1);
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--tx-2);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--line-2);
+  background: var(--bg-hover);
+  color: var(--tx-0);
+}
+.icon-btn.danger:hover {
+  border-color: rgba(230,95,80,.5);
+  background: var(--err-dim);
+  color: var(--err);
 }
 .motor-raw-control {
   display: grid;
