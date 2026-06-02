@@ -8,6 +8,20 @@ function cloneMotorConfig(rows) {
   return rows.map(r => ({ ...r }));
 }
 
+function calibrationRows(rows) {
+  return rows.map(r => ({
+    joint_name: String(r.joint_name || '').trim(),
+    id: parseInt(r.id || 0),
+    model: r.model,
+    raw_0_percent: parseInt(r.raw_0_percent || 0),
+    raw_home: parseInt(r.raw_home || 0),
+    raw_100_percent: parseInt(r.raw_100_percent || 0),
+    min_angle_deg: rawToServoDeg(r.raw_0_percent),
+    home_angle_deg: rawToServoDeg(r.raw_home),
+    max_angle_deg: rawToServoDeg(r.raw_100_percent),
+  }));
+}
+
 function motorDirection(row) {
   return Number(row.raw_100_percent) >= Number(row.raw_0_percent) ? '정방향' : '역방향';
 }
@@ -146,7 +160,7 @@ function MotorRangeBar({ row, currentRaw }) {
   );
 }
 
-function MotorRawControl({ row, currentRaw, commandRaw }) {
+function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
   const [input, setInput] = React.useState(String(currentRaw));
   const holdRef = React.useRef(null);
   const currentRef = React.useRef(currentRaw);
@@ -162,12 +176,14 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
   }, []);
 
   const step = (delta) => {
+    if (disabled) return;
     const next = clampRawForRow(row, Number(currentRef.current) + delta);
     currentRef.current = next;
     setInput(String(next));
     commandRaw(next);
   };
   const startHold = (delta) => {
+    if (disabled) return;
     currentRef.current = clampRawForRow(row, input);
     step(delta);
     if (holdRef.current) clearInterval(holdRef.current);
@@ -178,6 +194,7 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
     holdRef.current = null;
   };
   const commit = () => {
+    if (disabled) return;
     const next = clampRawForRow(row, input);
     currentRef.current = next;
     setInput(String(next));
@@ -189,6 +206,7 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
       <button
         type="button"
         className="raw-step"
+        disabled={disabled}
         onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); startHold(-1); }}
         onPointerUp={stopHold}
         onPointerCancel={stopHold}
@@ -197,6 +215,7 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
       >←</button>
       <input
         className="ninput tnum raw-current"
+        disabled={disabled}
         value={input}
         onChange={e => {
           setInput(e.target.value);
@@ -208,6 +227,7 @@ function MotorRawControl({ row, currentRaw, commandRaw }) {
       <button
         type="button"
         className="raw-step"
+        disabled={disabled}
         onPointerDown={e => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); startHold(1); }}
         onPointerUp={stopHold}
         onPointerCancel={stopHold}
@@ -242,7 +262,9 @@ function TabMotorSettings() {
 
   const localErrors = validateMotorRows(rows);
   const errors = [...localErrors, ...remoteErrors];
-  const dirty = JSON.stringify(rows) !== JSON.stringify(s.motorConfig || []);
+  const activeCalibration = calibrationRows(s.motorConfig || []);
+  const editedCalibration = calibrationRows(rows);
+  const dirty = JSON.stringify(editedCalibration) !== JSON.stringify(activeCalibration);
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
   const selectedMotor = selectedRow ? (s.motors[selectedRow.joint_name] || {}) : {};
@@ -260,17 +282,7 @@ function TabMotorSettings() {
     setMessage('');
   };
   const numberPatch = (key, value) => ({ [key]: parseFloat(value || '0') });
-  const document = () => ({ calibrations: rows.map(r => ({
-    joint_name: String(r.joint_name || '').trim(),
-    id: parseInt(r.id || 0),
-    model: r.model,
-    raw_0_percent: parseInt(r.raw_0_percent || 0),
-    raw_home: parseInt(r.raw_home || 0),
-    raw_100_percent: parseInt(r.raw_100_percent || 0),
-    min_angle_deg: rawToServoDeg(r.raw_0_percent),
-    home_angle_deg: rawToServoDeg(r.raw_home),
-    max_angle_deg: rawToServoDeg(r.raw_100_percent),
-  })) });
+  const document = () => ({ calibrations: editedCalibration });
 
   const runApi = async (label, path, method = 'POST') => {
     const local = validateMotorRows(rows);
@@ -295,6 +307,10 @@ function TabMotorSettings() {
   };
   const commandSelectedRaw = (raw) => {
     if (!selectedRow || !syncReady) return;
+    if (dirty) {
+      setMessage('모터 매핑을 ROS 즉시 적용 또는 저장+적용 후 위치 명령을 보낼 수 있습니다.');
+      return;
+    }
     const nextRaw = clampRawForRow(selectedRow, raw);
     setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
     if (window.RosBridge && window.RosBridge.rosMode) {
@@ -340,7 +356,7 @@ function TabMotorSettings() {
               })}>불러오기</Btn>
               <Btn kind="ghost" size="sm" icon="check" disabled={!!busy || localErrors.length > 0} onClick={() => runApi('검증', '/api/motor-config/validate')}>검증</Btn>
               <Btn kind="cy" size="sm" icon="bolt" disabled={!!busy || errors.length > 0} onClick={() => runApi('적용', '/api/motor-config/apply')}>ROS 즉시 적용</Btn>
-              <Btn kind="solid" size="sm" icon="save" disabled={!!busy || errors.length > 0} onClick={() => runApi('저장', '/api/motor-config/save', 'PUT')}>YAML 저장</Btn>
+              <Btn kind="solid" size="sm" icon="save" disabled={!!busy || errors.length > 0} onClick={() => runApi('저장', '/api/motor-config/save', 'PUT')}>저장+적용</Btn>
               <Btn kind="ghost" size="sm" icon="refresh" disabled={!dirty || !!busy} onClick={() => setRows(cloneMotorConfig(s.motorConfig || fallbackConfig))}>되돌리기</Btn>
             </div>
             <KV k="상태" v={busy ? busy + ' 중' : (message || '대기')} mono={false} />
@@ -417,11 +433,12 @@ function TabMotorSettings() {
               TORQUE {selectedTorque ? 'ON' : 'OFF'}
             </button>
             {!syncReady && <Badge kind="warn">현재 위치 동기화 대기</Badge>}
+            {dirty && <Badge kind="warn">매핑 적용 필요</Badge>}
             <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
             <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />
             <div className="motor-jog-bottom">
               {syncReady
-                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} />
+                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} disabled={dirty} />
                 : <button className="btn ghost block" disabled>동기화 대기</button>}
             </div>
           </>

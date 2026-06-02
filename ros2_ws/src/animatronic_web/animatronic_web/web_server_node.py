@@ -488,12 +488,16 @@ def create_app(node: WebBridgeNode) -> FastAPI:
 
     @app.put("/api/motor-config/save", dependencies=[Depends(require_password)])
     async def save_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
-        validation = await node.call_motor_calibration(document, apply=False)
-        if not validation["success"]:
-            raise HTTPException(status_code=400, detail=validation)
+        applied = await node.call_motor_calibration(document, apply=True)
+        if not applied["success"]:
+            raise HTTPException(status_code=400, detail=applied)
         path = motor_config_path()
         write_motor_calibrations(path, document)
-        return {"success": True, "path": str(path)}
+        return {
+            "success": True,
+            "message": f"{applied['message']}; saved to YAML",
+            "path": str(path),
+        }
 
     @app.get("/api/patterns", dependencies=[Depends(require_password)])
     async def list_patterns() -> dict[str, Any]:
