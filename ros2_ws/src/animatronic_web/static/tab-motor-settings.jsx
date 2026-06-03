@@ -406,6 +406,13 @@ function TabMotorSettings() {
       <div className="motorcfg-left">
         <div className="motorcfg-top">
           <Panel title="작업" accent="ACTIONS" bodyClass="col gap8">
+            <div className="kv">
+              <span className="k">전체 토크</span>
+              <div className="btn-row">
+                <Btn kind={s.torque ? 'solid' : 'ghost'} size="sm" icon="power" disabled={!!busy || s.torque} onClick={() => Store.toggleTorque()}>전체 ON</Btn>
+                <Btn kind={!s.torque ? 'danger' : 'ghost'} size="sm" icon="stop" disabled={!!busy || !s.torque} onClick={() => Store.toggleTorque()}>전체 OFF</Btn>
+              </div>
+            </div>
             <div className="btn-row">
               <Btn kind="ghost" size="sm" icon="refresh" disabled={!window.RosBridge || !window.RosBridge.rosMode || !!busy} onClick={() => window.RosBridge.api('/api/motor-config').then(data => {
                 const next = data.calibrations || [];
