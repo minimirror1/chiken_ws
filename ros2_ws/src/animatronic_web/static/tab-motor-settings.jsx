@@ -586,6 +586,8 @@ function TabMotorSettings() {
                 const rowErrors = validateMotorRows([row]);
                 const duplicate = duplicates[i] || {};
                 const rowHasError = rowErrors.length || duplicate.joint || duplicate.id;
+                const torqueKnownForRow = motor.torque !== undefined && s.motorSynced;
+                const torqueOnForRow = torqueKnownForRow ? motor.torque : false;
                 return (
                   <tr key={i} className={selected === i ? 'sel' : ''} onClick={() => setSelected(i)}>
                     <td>
@@ -608,7 +610,14 @@ function TabMotorSettings() {
                     <td><Badge kind={motorDirection(row) === '역방향' ? 'warn' : 'cy'}>{motorDirection(row)}</Badge></td>
                     <td className="num">{currentRaw}</td>
                     <td className="num" style={{ color: pct < 0 || pct > 100 ? 'var(--err)' : 'var(--cy)' }}>{pct.toFixed(1)}%</td>
-                    <td><Badge kind={rowHasError ? 'err' : 'ok'}>{rowHasError ? 'ERROR' : 'OK'}</Badge></td>
+                    <td>
+                      <span className="motor-state-badges">
+                        <Badge kind={rowHasError ? 'err' : 'ok'}>{rowHasError ? 'ERROR' : 'OK'}</Badge>
+                        <Badge kind={!torqueKnownForRow ? 'warn' : torqueOnForRow ? 'ok' : 'warn'}>
+                          TORQUE {torqueKnownForRow ? (torqueOnForRow ? 'ON' : 'OFF') : '--'}
+                        </Badge>
+                      </span>
+                    </td>
                     <td className="motor-map-actions">
                       <button
                         type="button"

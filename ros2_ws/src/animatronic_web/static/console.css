@@ -757,14 +757,14 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motor-map {
   table-layout: fixed;
 }
-.motor-map .c-joint { width: 18%; }
+.motor-map .c-joint { width: 14%; }
 .motor-map .c-id { width: 58px; }
-.motor-map .c-model { width: 130px; }
-.motor-map .c-cnt { width: 94px; }
+.motor-map .c-model { width: 124px; }
+.motor-map .c-cnt { width: 86px; }
 .motor-map .c-dir { width: 74px; }
-.motor-map .c-current { width: 76px; }
-.motor-map .c-pct { width: 76px; }
-.motor-map .c-state { width: 70px; }
+.motor-map .c-current { width: 68px; }
+.motor-map .c-pct { width: 64px; }
+.motor-map .c-state { width: 142px; }
 .motor-map .c-action { width: 36px; }
 .motor-map th,
 .motor-map td {
@@ -806,12 +806,18 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   margin-left: auto;
 }
 .motor-map .cnt {
-  max-width: 86px;
+  max-width: 78px;
   margin-left: auto;
 }
 .motor-map-actions {
   width: 34px;
   text-align: right;
+}
+.motor-state-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 .icon-btn {
   width: 28px;
