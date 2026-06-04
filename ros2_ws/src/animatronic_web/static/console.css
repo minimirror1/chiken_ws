@@ -793,6 +793,9 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   font-size: 11px;
   min-width: 0;
 }
+.motor-map input[type="number"].ninput {
+  color-scheme: dark;
+}
 .motor-map .ninput.dup {
   border-color: rgba(230,95,80,.72);
   background: rgba(230,95,80,.13);
