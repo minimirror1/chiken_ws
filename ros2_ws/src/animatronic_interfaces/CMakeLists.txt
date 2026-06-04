@@ -17,6 +17,7 @@ set(msg_files
   "msg/JointTargets.msg"
   "msg/Mode.msg"
   "msg/MotionStatus.msg"
+  "msg/MotorCalibration.msg"
   "msg/MotorDiagnostic.msg"
   "msg/MotorDiagnosticsArray.msg"
   "msg/MotorStatus.msg"
@@ -25,6 +26,7 @@ set(msg_files
 
 set(srv_files
   "srv/MotorCommand.srv"
+  "srv/SetMotorCalibration.srv"
   "srv/SetMode.srv"
   "srv/ValidatePattern.srv"
 )

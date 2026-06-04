@@ -377,6 +377,8 @@ function TabMotion() {
   const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
   const rafRef = React.useRef();
   const playRef = React.useRef();
+  const lastRosSendRef = React.useRef(0);
+  const realRunRef = React.useRef(false);
   const axisTrackRefs = React.useRef({});
   const dragRef = React.useRef();
   const suppressClickRef = React.useRef(false);
@@ -411,6 +413,11 @@ function TabMotion() {
       setT(cur);
       Store.state.joints = previewPoseAt(p, cur);
       Store.emit();
+      if (realRunRef.current && window.Store.sendJointsToRos && now - lastRosSendRef.current >= 33) {
+        lastRosSendRef.current = now;
+        window.Store.sendJointsToRos();
+      }
+      if (cur >= dur && realRunRef.current) realRunRef.current = false;
       if (cur < dur) rafRef.current = requestAnimationFrame(step);
     }
     rafRef.current = requestAnimationFrame(step);
@@ -446,7 +453,8 @@ function TabMotion() {
     scrub(time_ms);
   };
   const playPreview = () => {
-    if (playing) { setPlaying(false); Store.set({ playing: false }); return; }
+    if (playing) { realRunRef.current = false; setPlaying(false); Store.set({ playing: false }); return; }
+    realRunRef.current = false;
     if (t >= dur) setT(0);
     Store.set({ playing: true, activePattern: p.id }); setPlaying(true);
     Store.pushLog('cmd', 'studio', `미리보기 재생: '${p.name}'`);
@@ -455,13 +463,15 @@ function TabMotion() {
     Store.set({ mode: 'test', activePattern: p.id });
     Store.pushLog('cmd', 'studio', `실제 모터 실행: '${p.name}' (mode=TEST)`);
     if (t >= dur) setT(0);
+    realRunRef.current = true;
+    lastRosSendRef.current = 0;
     Store.set({ playing: true }); setPlaying(true);
   };
   const confirmRunReal = () => {
     if (!window.confirm('모터가 움직입니다. 정말 실행하시겠습니까?')) return;
     runReal();
   };
-  const stop = () => { setPlaying(false); Store.set({ playing: false, mode: 'stop' }); };
+  const stop = () => { realRunRef.current = false; setPlaying(false); Store.set({ playing: false, mode: 'stop' }); };
   const upsertAxisKey = (tracks, jid, key) => {
     const rest = sortedTrack(tracks[jid]).filter(k => k.id !== key.id && k.time_ms !== key.time_ms);
     return { ...tracks, [jid]: [...rest, key].sort((a, b) => a.time_ms - b.time_ms) };

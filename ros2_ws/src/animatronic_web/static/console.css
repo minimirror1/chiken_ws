@@ -647,6 +647,466 @@ body {
 .field .hint { font-size: 10px; color: var(--tx-3); }
 select.ninput { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2361707a'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; padding-right: 24px; }
 
+/* ============================================================
+   MOTOR SETUP
+   ============================================================ */
+.motorcfg {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(720px, 1fr) 360px;
+  gap: 12px;
+}
+.motorcfg-left {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+}
+.motorcfg-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 12px;
+}
+.motorcfg-range {
+  min-height: 0;
+}
+.motor-jog-bottom {
+  margin-top: auto;
+}
+.motor-torque-toggle {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+.torque-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  color: var(--fg-2);
+}
+.torque-switch {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  user-select: none;
+}
+.torque-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.torque-switch:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .58;
+}
+.torque-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 84px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--warn-dim);
+  border: 1px solid rgba(227,171,70,.45);
+  transition: background .2s, border-color .2s;
+  overflow: hidden;
+}
+.torque-switch input:checked ~ .torque-track {
+  background: var(--ok-dim);
+  border-color: rgba(82,214,163,.42);
+}
+.torque-thumb {
+  position: absolute;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--warn);
+  transition: left .2s, background .2s;
+  z-index: 1;
+}
+.torque-switch input:checked ~ .torque-track .torque-thumb {
+  left: calc(84px - 27px);
+  background: var(--ok);
+}
+.torque-off-txt,
+.torque-on-txt {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  transition: opacity .15s;
+}
+.torque-off-txt {
+  right: 7px;
+  color: var(--warn);
+  opacity: 1;
+}
+.torque-on-txt {
+  left: 7px;
+  color: var(--ok);
+  opacity: 0;
+}
+.torque-switch input:checked ~ .torque-track .torque-off-txt { opacity: 0; }
+.torque-switch input:checked ~ .torque-track .torque-on-txt  { opacity: 1; }
+.motor-map {
+  table-layout: fixed;
+}
+.motor-map .c-joint { width: 14%; }
+.motor-map .c-id { width: 58px; }
+.motor-map .c-model { width: 124px; }
+.motor-map .c-cnt { width: 86px; }
+.motor-map .c-dir { width: 74px; }
+.motor-map .c-current { width: 68px; }
+.motor-map .c-pct { width: 64px; }
+.motor-map .c-state { width: 142px; }
+.motor-map .c-action { width: 36px; }
+.motor-map th,
+.motor-map td {
+  vertical-align: middle;
+}
+.motor-map th.num {
+  text-align: right;
+}
+.motor-map th:last-child,
+.motor-map td:last-child {
+  text-align: right;
+}
+.motor-map-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.motor-map tr.sel td {
+  background: var(--cy-dim);
+}
+.motor-map .ninput {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 11px;
+  min-width: 0;
+}
+.motor-map input[type="number"].ninput {
+  color-scheme: dark;
+}
+.motor-map .ninput.dup {
+  border-color: rgba(230,95,80,.72);
+  background: rgba(230,95,80,.13);
+  color: var(--tx-0);
+}
+.motor-map .smnum {
+  max-width: 54px;
+  margin-left: auto;
+}
+.motor-map .cnt {
+  max-width: 78px;
+  margin-left: auto;
+}
+.motor-map-actions {
+  width: 34px;
+  text-align: right;
+}
+.motor-state-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-1);
+  border-radius: 3px;
+  background: var(--bg-2);
+  color: var(--tx-2);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--line-2);
+  background: var(--bg-hover);
+  color: var(--tx-0);
+}
+.icon-btn.danger:hover {
+  border-color: rgba(230,95,80,.5);
+  background: var(--err-dim);
+  color: var(--err);
+}
+.motor-raw-control {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) 46px;
+  gap: 8px;
+  align-items: center;
+}
+.motor-raw-control .raw-step {
+  height: 38px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: var(--bg-3);
+  color: var(--cy);
+  font-family: var(--mono);
+  font-size: 19px;
+  cursor: pointer;
+  user-select: none;
+}
+.motor-raw-control .raw-step:hover {
+  background: var(--cy-dim);
+  border-color: var(--cy-line);
+}
+.motor-raw-control .raw-step:active {
+  transform: translateY(1px);
+  background: rgba(63,199,212,.22);
+}
+.motor-raw-control .raw-current {
+  height: 38px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--cy);
+}
+.motor-raw-control .raw-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.motor-raw-control .raw-reset,
+.motor-raw-control .raw-send {
+  width: 100%;
+  justify-content: center;
+}
+.motor-raw-control .raw-send-reason {
+  grid-column: 1 / -1;
+  min-height: 14px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: right;
+}
+.motor-range {
+  display: grid;
+  gap: 8px;
+}
+.robotis-dial {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 176px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.025), transparent 42%),
+    var(--bg-2);
+  padding: 8px 10px;
+}
+.robotis-dial svg {
+  width: 160px;
+  height: 160px;
+  display: block;
+  cursor: crosshair;
+}
+.dial-case {
+  fill: #202832;
+  stroke: var(--line-2);
+  stroke-width: 2;
+}
+.dial-face {
+  fill: var(--bg-1);
+  stroke: rgba(255,255,255,.12);
+  stroke-width: 1.5;
+}
+.dial-range {
+  fill: none;
+  stroke: var(--cy);
+  stroke-width: 5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px var(--cy-glow));
+}
+.dial-range.rev {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 4px var(--warn-dim));
+}
+.dial-tick {
+  stroke: var(--tx-2);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.dial-home-line {
+  stroke: var(--warn);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+  opacity: .85;
+}
+.dial-arm {
+  stroke: #e9eef2;
+  stroke-width: 9;
+  stroke-linecap: round;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.45));
+}
+.dial-target-arm {
+  stroke: var(--cy);
+  stroke-width: 9;
+  stroke-linecap: round;
+  opacity: .38;
+}
+.dial-target-arm.danger {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 5px var(--warn-dim));
+}
+.dial-hub {
+  fill: #303944;
+  stroke: var(--cy-line);
+  stroke-width: 2;
+}
+.dial-bolt {
+  fill: var(--cy);
+}
+.dial-home-dot {
+  fill: var(--warn);
+  stroke: var(--bg-0);
+  stroke-width: 2;
+}
+.dial-current-dot {
+  fill: var(--cy);
+  stroke: #fff;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 5px var(--cy-glow));
+}
+.dial-target-dot {
+  fill: var(--cy);
+  stroke: #fff;
+  stroke-width: 1.5;
+  opacity: .45;
+}
+.dial-target-dot.danger {
+  fill: var(--warn);
+  filter: drop-shadow(0 0 6px var(--warn-dim));
+}
+.dial-label {
+  fill: var(--tx-2);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.robotis-dial-readout {
+  display: grid;
+  gap: 8px;
+  font-family: var(--mono);
+  color: var(--tx-2);
+  font-size: 10.5px;
+}
+.robotis-dial-readout span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px dashed var(--line-0);
+  padding-bottom: 5px;
+}
+.robotis-dial-readout b {
+  color: var(--cy);
+  font-size: 18px;
+  font-weight: 600;
+}
+.motor-range-track {
+  position: relative;
+  height: 28px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r);
+  background:
+    linear-gradient(90deg, var(--cy-dim), rgba(82,214,163,.15)),
+    var(--bg-2);
+  cursor: crosshair;
+}
+.motor-range-track.rev {
+  background:
+    linear-gradient(90deg, rgba(227,171,70,.18), var(--cy-dim)),
+    var(--bg-2);
+}
+.motor-range-track::before,
+.motor-range-track::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--line-2);
+}
+.motor-range-track::before { left: 0; }
+.motor-range-track::after { right: 0; }
+.motor-range .target-fill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 2px;
+  background: rgba(63,199,212,.26);
+}
+.motor-range .mark {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  transform: translateX(-1px);
+}
+.motor-range .mark.home {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn-dim);
+}
+.motor-range .mark.current {
+  width: 8px;
+  top: 0;
+  bottom: 0;
+  border: 1px solid #fff;
+  background: var(--cy);
+  box-shadow: 0 0 10px var(--cy-glow);
+}
+.motor-range .mark.target {
+  width: 8px;
+  top: 0;
+  bottom: 0;
+  border: 1px solid rgba(255,255,255,.65);
+  background: rgba(63,199,212,.55);
+  box-shadow: 0 0 8px rgba(63,199,212,.22);
+}
+.motor-range .mark.target.danger {
+  background: var(--warn);
+  box-shadow: 0 0 10px var(--warn-dim);
+}
+.motor-range-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx-2);
+}
+.motor-range-labels b {
+  color: var(--tx-0);
+  font-weight: 500;
+}
+.motor-error {
+  border: 1px solid rgba(230,95,80,.38);
+  border-radius: var(--r);
+  background: var(--err-dim);
+  color: var(--err);
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
 /* fade-in */
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .tabpane { opacity: 1; }

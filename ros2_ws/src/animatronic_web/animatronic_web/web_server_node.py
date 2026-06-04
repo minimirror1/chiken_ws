@@ -12,10 +12,15 @@ from animatronic_interfaces.action import RunPattern
 from animatronic_interfaces.msg import (
     DetectedPerson,
     EventLog,
+    JointTarget,
+    JointTargets,
     Mode,
+    MotorCalibration,
     MotionStatus,
     MotorDiagnosticsArray,
 )
+from animatronic_interfaces.srv import SetMotorCalibration
+from animatronic_interfaces.srv import MotorCommand
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -42,6 +47,14 @@ MODE_LABELS = {
     "test": Mode.TEST,
 }
 
+JOINT_NORMALIZATION_DEG = {
+    "lower_yaw": 90.0,
+    "lower_pitch": 35.0,
+    "upper_yaw": 80.0,
+    "upper_pitch": 48.0,
+}
+VIRTUAL_JOINTS = {"lower_yaw"}
+
 
 class ModeRequest(BaseModel):
     mode: str | int
@@ -60,6 +73,30 @@ class JointPositions(BaseModel):
     positions: dict[str, float]  # joint_name -> degrees
 
 
+class RawPositionRequest(BaseModel):
+    raw: int
+
+
+class MotorCalibrationItem(BaseModel):
+    joint_name: str
+    id: int
+    model: str
+    raw_0_percent: int
+    raw_home: int
+    raw_100_percent: int
+    min_angle_deg: float = -100.0
+    home_angle_deg: float = 0.0
+    max_angle_deg: float = 100.0
+
+
+class MotorCalibrationDocument(BaseModel):
+    calibrations: list[MotorCalibrationItem]
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(max(value, minimum), maximum)
+
+
 def ros_message_to_dict(message: Any) -> Any:
     if message is None:
         return None
@@ -75,12 +112,92 @@ def ros_message_to_dict(message: Any) -> Any:
     return message
 
 
+def motor_config_path() -> Path:
+    return Path(get_package_share_directory("chicken_bringup")) / "config" / "motors.yaml"
+
+
+def source_motor_config_path() -> Path | None:
+    candidates = [Path.cwd(), *Path(__file__).resolve().parents]
+    for base in candidates:
+        path = base / "src" / "chicken_bringup" / "config" / "motors.yaml"
+        if path.exists():
+            return path
+    return None
+
+
+def motor_config_read_path() -> Path:
+    return source_motor_config_path() or motor_config_path()
+
+
+def motor_config_write_paths() -> list[Path]:
+    paths = [motor_config_path()]
+    source_path = source_motor_config_path()
+    if source_path is not None and source_path not in paths:
+        paths.append(source_path)
+    return paths
+
+
+def read_motor_calibrations(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    params = data.get("/**", {}).get("ros__parameters", {})
+    joint_names = params.get("joint_names", [])
+    joints = params.get("joints", {})
+    calibrations = []
+    for name in joint_names:
+        item = joints.get(name, {})
+        if not item:
+            continue
+        calibrations.append({
+            "joint_name": name,
+            "id": int(item.get("id", 0)),
+            "model": str(item.get("model", "")),
+            "raw_0_percent": int(item.get("raw_min", 0)),
+            "raw_home": int(item.get("raw_home", 0)),
+            "raw_100_percent": int(item.get("raw_max", 0)),
+            "min_angle_deg": float(item.get("min_angle_deg", -100.0)),
+            "home_angle_deg": float(item.get("home_angle_deg", 0.0)),
+            "max_angle_deg": float(item.get("max_angle_deg", 100.0)),
+        })
+    return calibrations
+
+
+def write_motor_calibrations(path: Path, document: MotorCalibrationDocument) -> None:
+    data = {
+        "/**": {
+            "ros__parameters": {
+                "mock_mode": False,
+                "port": "/dev/ttyUSB0",
+                "baudrate": 1000000,
+                "protocol_version": 2.0,
+                "joint_names": [item.joint_name for item in document.calibrations],
+                "joints": {},
+            }
+        }
+    }
+    joints = data["/**"]["ros__parameters"]["joints"]
+    for item in document.calibrations:
+        joints[item.joint_name] = {
+            "id": int(item.id),
+            "model": item.model,
+            "raw_min": int(item.raw_0_percent),
+            "raw_home": int(item.raw_home),
+            "raw_max": int(item.raw_100_percent),
+            "min_angle_deg": float(item.min_angle_deg),
+            "home_angle_deg": float(item.home_angle_deg),
+            "max_angle_deg": float(item.max_angle_deg),
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+
 class WebBridgeNode(Node):
     def __init__(self) -> None:
         super().__init__("web_server_node")
         self.declare_parameter("namespace", "/animatronic")
         self.declare_parameter("web.host", "0.0.0.0")
-        self.declare_parameter("web.port", 8080)
+        self.declare_parameter("web.port", 18080)
         self.declare_parameter("password", "")
         default_patterns = str(Path(get_package_share_directory("animatronic_web")) / "patterns")
         self.declare_parameter("pattern_dir", default_patterns)
@@ -106,8 +223,17 @@ class WebBridgeNode(Node):
         self.mode_pub = self.create_publisher(Mode, self.topic("mode"), 10)
         self.torque_pub = self.create_publisher(Bool, self.topic("motor/torque_enable"), 10)
         self.joint_cmd_pub = self.create_publisher(JointState, self.topic("joint_cmd"), 10)
+        self.target_joints_pub = self.create_publisher(JointTargets, self.topic("target_joints"), 10)
         self.motor_home_client = self.create_client(Trigger, self.topic("motor/home"))
         self.motor_stop_client = self.create_client(Trigger, self.topic("motor/stop"))
+        self.motor_command_client = self.create_client(
+            MotorCommand,
+            self.topic("motor/command"),
+        )
+        self.motor_calibration_client = self.create_client(
+            SetMotorCalibration,
+            self.topic("motor/calibration"),
+        )
         self.motion_stop_client = self.create_client(Trigger, self.topic("motion/stop"))
         self.run_pattern_client = ActionClient(self, RunPattern, self.topic("run_pattern"))
 
@@ -135,6 +261,8 @@ class WebBridgeNode(Node):
                     "services": {
                         "motor_home": self.motor_home_client.service_is_ready(),
                         "motor_stop": self.motor_stop_client.service_is_ready(),
+                        "motor_command": self.motor_command_client.service_is_ready(),
+                        "motor_calibration": self.motor_calibration_client.service_is_ready(),
                         "motion_stop": self.motion_stop_client.service_is_ready(),
                     },
                     "actions": {
@@ -181,8 +309,39 @@ class WebBridgeNode(Node):
         msg.name = list(positions.keys())
         msg.position = [math.radians(v) for v in positions.values()]
         self.joint_cmd_pub.publish(msg)
+        targets = JointTargets()
+        targets.stamp = msg.header.stamp
+        targets.source = "web:manual"
+        for name, angle_deg in positions.items():
+            if name in VIRTUAL_JOINTS:
+                continue
+            scale_deg = JOINT_NORMALIZATION_DEG.get(name)
+            if not scale_deg:
+                continue
+            target = JointTarget()
+            target.name = name
+            target.angle_deg = float(angle_deg)
+            target.normalized_value = clamp((float(angle_deg) / scale_deg) * 100.0, -100.0, 100.0)
+            target.raw_position = 0
+            targets.joints.append(target)
+        if targets.joints:
+            self.target_joints_pub.publish(targets)
         self.log_event("web", "joints", f"Joint cmd: {positions}")
         return {"success": True, "positions": positions}
+
+    def publish_raw_position(self, joint_name: str, raw_position: int) -> dict[str, Any]:
+        targets = JointTargets()
+        targets.stamp = self.get_clock().now().to_msg()
+        targets.source = "web:motor_raw"
+        target = JointTarget()
+        target.name = joint_name
+        target.angle_deg = 0.0
+        target.normalized_value = 0.0
+        target.raw_position = int(raw_position)
+        targets.joints.append(target)
+        self.target_joints_pub.publish(targets)
+        self.log_event("web", "motor_raw", f"Raw target: {joint_name}={raw_position}")
+        return {"success": True, "joint_name": joint_name, "raw": int(raw_position)}
 
     async def call_trigger(self, client: Any, name: str) -> dict[str, Any]:
         if not client.service_is_ready():
@@ -195,6 +354,61 @@ class WebBridgeNode(Node):
             await asyncio.sleep(0.02)
         result = future.result()
         return {"success": bool(result.success), "message": result.message}
+
+    async def call_motor_command(
+        self,
+        motor_id: int,
+        command: str,
+    ) -> dict[str, Any]:
+        client = self.motor_command_client
+        if not client.service_is_ready():
+            return {"success": False, "message": "motor/command service is not available"}
+        request = MotorCommand.Request()
+        request.id = int(motor_id)
+        request.command = command
+        future = client.call_async(request)
+        deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not future.done():
+            if asyncio.get_running_loop().time() > deadline:
+                return {"success": False, "message": "motor/command service timed out"}
+            await asyncio.sleep(0.02)
+        result = future.result()
+        return {"success": bool(result.success), "message": result.message}
+
+    async def call_motor_calibration(
+        self,
+        document: MotorCalibrationDocument,
+        apply: bool,
+    ) -> dict[str, Any]:
+        client = self.motor_calibration_client
+        if not client.service_is_ready():
+            return {"success": False, "message": "motor/calibration service is not available", "errors": []}
+        request = SetMotorCalibration.Request()
+        request.apply = apply
+        for item in document.calibrations:
+            calibration = MotorCalibration()
+            calibration.joint_name = item.joint_name
+            calibration.id = int(item.id)
+            calibration.model = item.model
+            calibration.raw_0_percent = int(item.raw_0_percent)
+            calibration.raw_home = int(item.raw_home)
+            calibration.raw_100_percent = int(item.raw_100_percent)
+            calibration.min_angle_deg = float(item.min_angle_deg)
+            calibration.home_angle_deg = float(item.home_angle_deg)
+            calibration.max_angle_deg = float(item.max_angle_deg)
+            request.calibrations.append(calibration)
+        future = client.call_async(request)
+        deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not future.done():
+            if asyncio.get_running_loop().time() > deadline:
+                return {"success": False, "message": "motor/calibration service timed out", "errors": []}
+            await asyncio.sleep(0.02)
+        result = future.result()
+        return {
+            "success": bool(result.success),
+            "message": result.message,
+            "errors": list(result.errors),
+        }
 
     def _set_state(self, key: str, message: Any) -> None:
         with self._lock:
@@ -262,9 +476,51 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     async def torque(request: TorqueRequest) -> dict[str, Any]:
         return node.publish_torque(request.enabled)
 
+    @app.post("/api/motor/{motor_id}/torque", dependencies=[Depends(require_password)])
+    async def motor_torque(motor_id: int, request: TorqueRequest) -> dict[str, Any]:
+        return await node.call_motor_command(
+            motor_id,
+            "torque_on" if request.enabled else "torque_off",
+        )
+
     @app.post("/api/joints", dependencies=[Depends(require_password)])
     async def set_joints(request: JointPositions) -> dict[str, Any]:
         return node.publish_joint_positions(request.positions)
+
+    @app.post("/api/motor/{joint_name}/raw", dependencies=[Depends(require_password)])
+    async def set_motor_raw(joint_name: str, request: RawPositionRequest) -> dict[str, Any]:
+        return node.publish_raw_position(joint_name, request.raw)
+
+    @app.get("/api/motor-config", dependencies=[Depends(require_password)])
+    async def get_motor_config() -> dict[str, Any]:
+        path = motor_config_read_path()
+        return {
+            "path": str(path),
+            "calibrations": read_motor_calibrations(path),
+        }
+
+    @app.post("/api/motor-config/validate", dependencies=[Depends(require_password)])
+    async def validate_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        return await node.call_motor_calibration(document, apply=False)
+
+    @app.post("/api/motor-config/apply", dependencies=[Depends(require_password)])
+    async def apply_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        return await node.call_motor_calibration(document, apply=True)
+
+    @app.put("/api/motor-config/save", dependencies=[Depends(require_password)])
+    async def save_motor_config(document: MotorCalibrationDocument) -> dict[str, Any]:
+        applied = await node.call_motor_calibration(document, apply=True)
+        if not applied["success"]:
+            raise HTTPException(status_code=400, detail=applied)
+        paths = motor_config_write_paths()
+        for path in paths:
+            write_motor_calibrations(path, document)
+        return {
+            "success": True,
+            "message": f"{applied['message']}; saved to YAML",
+            "path": str(paths[-1]),
+            "saved_paths": [str(path) for path in paths],
+        }
 
     @app.get("/api/patterns", dependencies=[Depends(require_password)])
     async def list_patterns() -> dict[str, Any]:

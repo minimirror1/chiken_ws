@@ -30,7 +30,7 @@ def generate_launch_description():
             DeclareLaunchArgument("namespace", default_value="animatronic"),
             DeclareLaunchArgument("mock_mode", default_value="true"),
             DeclareLaunchArgument("web_host", default_value="0.0.0.0"),
-            DeclareLaunchArgument("web_port", default_value="8080"),
+            DeclareLaunchArgument("web_port", default_value="18080"),
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",

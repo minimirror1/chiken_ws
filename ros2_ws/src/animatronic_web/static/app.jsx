@@ -10,6 +10,7 @@ const TABS = [
   { id: 'sensor',  idx: '05', kr: '센서/반응', en: 'SENSOR',     C: () => window.TabSensor },
   { id: 'diag',    idx: '06', kr: '진단/로그', en: 'DIAGNOSTICS', C: () => window.TabDiagnostics },
   { id: 'settings',idx: '07', kr: '설정',      en: 'SETTINGS',   C: () => window.TabSettings },
+  { id: 'motorcfg',idx: '08', kr: '모터 설정', en: 'MOTOR SETUP', C: () => window.TabMotorSettings },
 ];
 
 function Clock() {

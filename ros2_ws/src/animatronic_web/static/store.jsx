@@ -11,6 +11,11 @@ const JOINTS = [
   { id: 'upper_pitch', kr: '상부 끄덕', axis: 'x', max: 48, soft: 42 },
 ];
 const JOINT_IDS = JOINTS.map(j => j.id);
+const DEFAULT_MOTOR_CONFIG = [
+  { joint_name: 'lower_pitch', id: 1, model: 'XM430-W350-R', raw_0_percent: 1820, raw_home: 2048, raw_100_percent: 2276, min_angle_deg: -20, home_angle_deg: 0, max_angle_deg: 20 },
+  { joint_name: 'upper_yaw', id: 2, model: 'XM430-W350-R', raw_0_percent: 1707, raw_home: 2048, raw_100_percent: 2389, min_angle_deg: -30, home_angle_deg: 0, max_angle_deg: 30 },
+  { joint_name: 'upper_pitch', id: 3, model: 'XM430-W350-R', raw_0_percent: 1820, raw_home: 2048, raw_100_percent: 2276, min_angle_deg: -20, home_angle_deg: 0, max_angle_deg: 20 },
+];
 
 // value(-100..100) -> degrees
 function valToDeg(jid, v) {
@@ -89,6 +94,7 @@ const Store = {
     mode: 'detect',                    // detect | random | test | stop
     torque: true,
     joints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 },
+    actualJoints: { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 },
     target: null,                      // commanded target pose (for slow-move readout)
     moveSpeed: 'instant',              // instant | slow
     activePattern: 'idle_breathe',
@@ -103,6 +109,11 @@ const Store = {
       nearestId: 3,
     },
     motors: initMotors(),
+    motorConfig: DEFAULT_MOTOR_CONFIG,
+    motorConfigPath: '',
+    motorSynced: false,
+    targetSyncedFromActual: false,
+    userCommandedPose: false,
     ros: { connected: true, node: 'chicken_controller', services: true, actions: true, hz: 50, latency: 6 },
     logs: SEED_LOGS.map((l, i) => ({ ...l, id: 'l' + i, t: nowHMS(new Date(Date.now() - (SEED_LOGS.length - i) * 3400)) })),
     patterns: SEED_PATTERNS,
@@ -130,11 +141,13 @@ const Store = {
   setJoint(id, v) {
     v = Math.max(-100, Math.min(100, Math.round(v)));
     this.state.joints = { ...this.state.joints, [id]: v };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.emit();
   },
   setPose(pose, source = 'operator') {
     this.state.joints = { ...this.state.joints, ...pose };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.log('cmd', source, '목표 자세 적용 ' + JOINT_IDS.map(id => this.state.joints[id]).join(' / '));
     this.emit();
@@ -154,6 +167,7 @@ const Store = {
   },
   home() {
     this.state.joints = { lower_yaw: 0, lower_pitch: 0, upper_yaw: 0, upper_pitch: 0 };
+    this.state.userCommandedPose = true;
     this.state.lastActionTime = Date.now();
     this.log('cmd', 'operator', '기준 자세(home) 복귀');
     this.emit();
@@ -206,6 +220,7 @@ function liveSim() {
     m.pos = Math.round(valToDeg(id, s.joints[id]) * 10) / 10;
     m.raw = valToRaw(id, s.joints[id]);
   });
+  s.actualJoints = { ...s.joints };
   if (s.sensor.connected) {
     s.sensor.persons.forEach(p => {
       p.dist = Math.max(0.5, p.dist + (Math.random() - 0.5) * 0.06);
@@ -256,6 +271,7 @@ function useStore() {
 
 window.Store = Store;
 window.useStore = useStore;
+window.DEFAULT_MOTOR_CONFIG = DEFAULT_MOTOR_CONFIG;
 window.JOINTS = JOINTS;
 window.JOINT_IDS = JOINT_IDS;
 window.defaultTangent = defaultTangent;
@@ -302,37 +318,50 @@ window.RosBridge = (function() {
 
       // Joint states → -100..100 scale
       if (data.joint_states && Array.isArray(data.joint_states.name)) {
-        const joints = { ...Store.state.joints };
+        const actualJoints = { ...Store.state.actualJoints };
         data.joint_states.name.forEach((name, i) => {
           const pos = data.joint_states.position && data.joint_states.position[i];
           if (pos !== undefined) {
             const deg = pos * 180 / Math.PI;
-            joints[name] = DEG_TO_VAL(name, deg);
+            actualJoints[name] = DEG_TO_VAL(name, deg);
           }
         });
-        patch.joints = joints;
+        patch.actualJoints = actualJoints;
+        if (!Store.state.targetSyncedFromActual && !Store.state.userCommandedPose) {
+          patch.joints = { ...Store.state.joints, ...actualJoints };
+          patch.targetSyncedFromActual = true;
+        }
       }
 
       // Motor diagnostics
-      if (data.motor_diagnostics && Array.isArray(data.motor_diagnostics.motors)) {
-        const motors = {};
+      const diagnostics = data.motor_diagnostics && (data.motor_diagnostics.diagnostics || data.motor_diagnostics.motors);
+      if (Array.isArray(diagnostics)) {
+        const motors = { ...Store.state.motors };
         JOINT_IDS.forEach(id => { motors[id] = { ...Store.state.motors[id] }; });
-        data.motor_diagnostics.motors.forEach(m => {
+        diagnostics.forEach(m => {
           const id = m.joint_name;
-          if (id && motors[id]) {
+          if (id) {
+            const current = motors[id] || {
+              volt: 0, temp: 0, load: 0, pos: 0, raw: 2048,
+              torque: false, error: 'OK', model: '',
+            };
             motors[id] = {
-              volt: m.voltage !== undefined ? m.voltage : motors[id].volt,
-              temp: m.temperature !== undefined ? m.temperature : motors[id].temp,
-              load: m.load !== undefined ? m.load * 100 : motors[id].load,
-              pos: m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : motors[id].pos,
-              raw: m.present_position !== undefined ? m.present_position : motors[id].raw,
-              torque: m.torque_enabled !== undefined ? m.torque_enabled : motors[id].torque,
+              volt: m.voltage_v !== undefined ? m.voltage_v : (m.voltage !== undefined ? m.voltage : current.volt),
+              temp: m.temperature_c !== undefined ? m.temperature_c : (m.temperature !== undefined ? m.temperature : current.temp),
+              load: m.load !== undefined ? m.load * 100 : current.load,
+              pos: m.angle_deg !== undefined ? m.angle_deg : (m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : current.pos),
+              raw: m.raw_position !== undefined ? m.raw_position : (m.present_position !== undefined ? m.present_position : current.raw),
+              torque: m.torque_enabled !== undefined ? m.torque_enabled : current.torque,
               error: (m.error_code === 0 || m.error_code === undefined) ? 'OK' : 'E' + m.error_code,
-              model: m.model_name || motors[id].model,
+              model: m.model || m.model_name || current.model,
             };
           }
         });
         patch.motors = motors;
+        patch.torque = diagnostics.length
+          ? diagnostics.every(m => !!m.torque_enabled)
+          : Store.state.torque;
+        patch.motorSynced = true;
       }
 
       // Motion status
@@ -386,12 +415,13 @@ window.RosBridge = (function() {
     },
 
     async api(path, options = {}) {
-      const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+      const headers = Object.assign({}, options.headers || {});
+      if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
       if (this.password) headers['X-Animatronic-Password'] = this.password;
-      try {
-        const r = await fetch(path, Object.assign({}, options, { headers }));
-        return await r.json();
-      } catch(e) { return null; }
+      const r = await fetch(path, Object.assign({}, options, { headers }));
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw data;
+      return data;
     },
 
     // 관절 위치 명령 (degrees)
@@ -400,6 +430,10 @@ window.RosBridge = (function() {
       JOINT_IDS.forEach(id => { positions[id] = valToDeg(id, joints[id] || 0); });
       return this.api('/api/joints', { method: 'POST', body: JSON.stringify({ positions }) });
     },
+  };
+
+  Store.sendJointsToRos = function() {
+    return bridge.sendJoints(Store.state.joints);
   };
 
   // Store 메서드 오버라이드 → API 연동
