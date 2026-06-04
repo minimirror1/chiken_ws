@@ -314,6 +314,10 @@ function TabMotorSettings() {
       ? manualRaw[selectedRow.joint_name]
       : (selectedMotor.raw !== undefined ? selectedMotor.raw : selectedRow.raw_home))
     : 0;
+  const anyTorqueOn = rows.some(row => {
+    const motor = s.motors[row.joint_name] || {};
+    return motor.torque !== undefined ? motor.torque : s.torque;
+  });
   const syncReady = !s.rosConnected || s.motorSynced;
 
   const updateRow = (index, patch) => {
@@ -343,6 +347,30 @@ function TabMotorSettings() {
   const numberPatch = (key, value) => ({ [key]: parseFloat(value || '0') });
   const document = () => ({ calibrations: editedCalibration });
 
+  const setAllTorque = async (enabled) => {
+    const motors = { ...s.motors };
+    rows.forEach(row => {
+      motors[row.joint_name] = {
+        ...motors[row.joint_name],
+        torque: enabled,
+      };
+    });
+    Store.set({ torque: enabled, motors });
+    Store.pushLog(
+      enabled ? 'ok' : 'warn',
+      'motor',
+      `토크 ${enabled ? 'ON' : 'OFF'} — 전체 매핑 모터 ${enabled ? '활성' : '해제'}`,
+    );
+    if (window.RosBridge && window.RosBridge.rosMode) {
+      for (const row of rows) {
+        await window.RosBridge.api(`/api/motor/${row.id}/torque`, {
+          method: 'POST',
+          body: JSON.stringify({ enabled }),
+        });
+      }
+    }
+  };
+
   const runApi = async (label, path, method = 'POST') => {
     const local = validateMotorRows(rows);
     setRemoteErrors([]);
@@ -350,6 +378,17 @@ function TabMotorSettings() {
     if (local.length) return;
     setBusy(label);
     try {
+      if (path === '/api/motor-config/save' && anyTorqueOn) {
+        setBusy('전체 OFF 확인');
+        const ok = window.confirm('저장+적용은 전체 토크 OFF 상태에서만 가능합니다.\n동의하면 전체 토크 OFF 후 저장+적용을 계속 진행합니다.');
+        if (!ok) {
+          setMessage('저장+적용 취소됨');
+          return;
+        }
+        setMessage('전체 토크 OFF 진행 중');
+        await setAllTorque(false);
+      }
+      setBusy(label);
       const res = await window.RosBridge.api(path, { method, body: JSON.stringify(document()) });
       setRemoteErrors(res.errors || []);
       setMessage(res.message || (res.success ? '완료' : '실패'));
@@ -409,8 +448,8 @@ function TabMotorSettings() {
             <div className="kv">
               <span className="k">전체 토크</span>
               <div className="btn-row">
-                <Btn kind={s.torque ? 'solid' : 'ghost'} size="sm" icon="power" disabled={!!busy || s.torque} onClick={() => Store.toggleTorque()}>전체 ON</Btn>
-                <Btn kind={!s.torque ? 'danger' : 'ghost'} size="sm" icon="stop" disabled={!!busy || !s.torque} onClick={() => Store.toggleTorque()}>전체 OFF</Btn>
+                <Btn kind={anyTorqueOn ? 'solid' : 'ghost'} size="sm" icon="power" disabled={!!busy || anyTorqueOn} onClick={() => setAllTorque(true)}>전체 ON</Btn>
+                <Btn kind={!anyTorqueOn ? 'danger' : 'ghost'} size="sm" icon="stop" disabled={!!busy || !anyTorqueOn} onClick={() => setAllTorque(false)}>전체 OFF</Btn>
               </div>
             </div>
             <div className="btn-row">
@@ -514,13 +553,22 @@ function TabMotorSettings() {
           <>
             <KV k="Joint" v={selectedRow.joint_name} />
             <KV k="방향" v={motorDirection(selectedRow)} mono={false} />
-            <button
-              type="button"
-              className={`motor-torque-btn ${selectedTorque ? 'on' : ''}`}
-              onClick={() => commandTorque(!selectedTorque)}
-            >
-              TORQUE {selectedTorque ? 'ON' : 'OFF'}
-            </button>
+            <div className="motor-torque-toggle">
+              <span className="torque-label">TORQUE</span>
+              <label className="torque-switch">
+                <input
+                  type="checkbox"
+                  checked={!!selectedTorque}
+                  disabled={!!busy}
+                  onChange={e => commandTorque(e.target.checked)}
+                />
+                <span className="torque-track">
+                  <span className="torque-thumb" />
+                  <span className="torque-off-txt">OFF</span>
+                  <span className="torque-on-txt">ON</span>
+                </span>
+              </label>
+            </div>
             {!syncReady && <Badge kind="warn">현재 위치 동기화 대기</Badge>}
             {dirty && <Badge kind="warn">매핑 적용 필요</Badge>}
             <RobotisDial row={selectedRow} currentRaw={selectedRaw} />

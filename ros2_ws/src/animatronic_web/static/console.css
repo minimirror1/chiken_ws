@@ -674,27 +674,86 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 .motor-jog-bottom {
   margin-top: auto;
 }
-.motor-torque-btn {
-  height: 34px;
-  border: 1px solid rgba(227,171,70,.45);
-  border-radius: var(--r);
-  background: var(--warn-dim);
-  color: var(--warn);
+.motor-torque-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.torque-label {
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: .06em;
+  color: var(--fg-2);
+}
+.torque-switch {
+  position: relative;
+  display: inline-block;
   cursor: pointer;
+  user-select: none;
 }
-.motor-torque-btn.on {
-  border-color: rgba(82,214,163,.42);
+.torque-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.torque-switch:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: .58;
+}
+.torque-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 84px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--warn-dim);
+  border: 1px solid rgba(227,171,70,.45);
+  transition: background .2s, border-color .2s;
+  overflow: hidden;
+}
+.torque-switch input:checked ~ .torque-track {
   background: var(--ok-dim);
+  border-color: rgba(82,214,163,.42);
+}
+.torque-thumb {
+  position: absolute;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--warn);
+  transition: left .2s, background .2s;
+  z-index: 1;
+}
+.torque-switch input:checked ~ .torque-track .torque-thumb {
+  left: calc(84px - 27px);
+  background: var(--ok);
+}
+.torque-off-txt,
+.torque-on-txt {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  transition: opacity .15s;
+}
+.torque-off-txt {
+  right: 7px;
+  color: var(--warn);
+  opacity: 1;
+}
+.torque-on-txt {
+  left: 7px;
   color: var(--ok);
+  opacity: 0;
 }
-.motor-torque-btn:hover {
-  border-color: var(--line-2);
-  background: var(--bg-hover);
-}
+.torque-switch input:checked ~ .torque-track .torque-off-txt { opacity: 0; }
+.torque-switch input:checked ~ .torque-track .torque-on-txt  { opacity: 1; }
 .motor-map th,
 .motor-map td {
   vertical-align: middle;
