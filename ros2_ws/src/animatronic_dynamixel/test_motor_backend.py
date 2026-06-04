@@ -8,6 +8,7 @@ from animatronic_dynamixel.motor_node import (
     angle_to_raw,
     normalized_to_raw,
     raw_to_angle_deg,
+    raw_to_joint_deg,
     signed_value,
 )
 
@@ -104,6 +105,23 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(normalized_to_raw(0.0, config), 1700)
         self.assertEqual(normalized_to_raw(100.0, config), 3500)
         self.assertEqual(config.home_raw, 1700)
+
+    def test_joint_angle_is_relative_to_home_angle(self):
+        config = MotorConfig(
+            joint_name="upper_pitch",
+            motor_id=3,
+            model="XM430-W350-R",
+            min_raw=2046,
+            home_raw=3000,
+            max_raw=4095,
+            min_angle_deg=179.9,
+            home_angle_deg=263.7,
+            max_angle_deg=360.0,
+            profile=PROFILES["XM430-W350-R"],
+        )
+        self.assertAlmostEqual(raw_to_angle_deg(3000, config), 263.7)
+        self.assertAlmostEqual(raw_to_joint_deg(3000, config), 0.0)
+        self.assertAlmostEqual(raw_to_joint_deg(2046, config), -83.8)
 
     def test_signed_value(self):
         self.assertEqual(signed_value(0x0001, 2), 1)

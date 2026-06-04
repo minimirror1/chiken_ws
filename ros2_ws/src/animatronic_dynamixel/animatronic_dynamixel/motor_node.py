@@ -607,6 +607,10 @@ def raw_to_angle_deg(raw_position: int, config: MotorConfig) -> float:
     return config.home_angle_deg + (config.min_angle_deg - config.home_angle_deg) * ratio
 
 
+def raw_to_joint_deg(raw_position: int, config: MotorConfig) -> float:
+    return raw_to_angle_deg(raw_position, config) - config.home_angle_deg
+
+
 def angle_to_raw(angle_deg: float, config: MotorConfig) -> int:
     angle = max(config.min_angle_deg, min(config.max_angle_deg, angle_deg))
     if angle >= config.home_angle_deg:
@@ -1072,7 +1076,7 @@ class MotorNode(Node):
                 diagnostic.raw_position if diagnostic is not None else config.home_raw
             )
             joint_state.name.append(config.joint_name)
-            joint_state.position.append(raw_to_angle_deg(raw_position, config) * pi / 180.0)
+            joint_state.position.append(raw_to_joint_deg(raw_position, config) * pi / 180.0)
         self._joint_state_pub.publish(joint_state)
 
 
