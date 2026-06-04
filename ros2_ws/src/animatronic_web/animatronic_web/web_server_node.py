@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from animatronic_interfaces.action import RunPattern
 from animatronic_interfaces.msg import (
@@ -67,6 +68,13 @@ class TorqueRequest(BaseModel):
 
 class PatternDocument(BaseModel):
     content: str
+
+
+class MotionRunRequest(BaseModel):
+    pattern_name: str = ""
+    pattern_yaml: str = ""
+    preview_only: bool = False
+    allow_interrupt: bool = True
 
 
 class JointPositions(BaseModel):
@@ -355,6 +363,48 @@ class WebBridgeNode(Node):
         result = future.result()
         return {"success": bool(result.success), "message": result.message}
 
+    async def run_motion_pattern(self, request: MotionRunRequest) -> dict[str, Any]:
+        client = self.run_pattern_client
+        if not client.server_is_ready() and not client.wait_for_server(timeout_sec=0.1):
+            return {"success": False, "message": "run_pattern action is not available"}
+
+        goal = RunPattern.Goal()
+        goal.pattern_name = request.pattern_name
+        goal.pattern_yaml = request.pattern_yaml
+        goal.preview_only = bool(request.preview_only)
+        goal.allow_interrupt = bool(request.allow_interrupt)
+
+        feedback_state: dict[str, Any] = {"progress": 0.0, "current_keyframe": ""}
+
+        def feedback_callback(feedback_msg: Any) -> None:
+            feedback = feedback_msg.feedback
+            feedback_state["progress"] = float(feedback.progress)
+            feedback_state["current_keyframe"] = feedback.current_keyframe
+
+        send_future = client.send_goal_async(goal, feedback_callback=feedback_callback)
+        send_deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not send_future.done():
+            if asyncio.get_running_loop().time() > send_deadline:
+                return {"success": False, "message": "run_pattern goal send timed out"}
+            await asyncio.sleep(0.02)
+
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            return {"success": False, "message": "run_pattern goal was rejected"}
+
+        result_future = goal_handle.get_result_async()
+        while not result_future.done():
+            await asyncio.sleep(0.02)
+
+        wrapped = result_future.result()
+        result = wrapped.result
+        return {
+            "success": bool(result.success) and wrapped.status == GoalStatus.STATUS_SUCCEEDED,
+            "message": result.message,
+            "status": int(wrapped.status),
+            "feedback": feedback_state,
+        }
+
     async def call_motor_command(
         self,
         motor_id: int,
@@ -486,6 +536,10 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     @app.post("/api/joints", dependencies=[Depends(require_password)])
     async def set_joints(request: JointPositions) -> dict[str, Any]:
         return node.publish_joint_positions(request.positions)
+
+    @app.post("/api/motion/run", dependencies=[Depends(require_password)])
+    async def run_motion(request: MotionRunRequest) -> dict[str, Any]:
+        return await node.run_motion_pattern(request)
 
     @app.post("/api/motor/{joint_name}/raw", dependencies=[Depends(require_password)])
     async def set_motor_raw(joint_name: str, request: RawPositionRequest) -> dict[str, Any]:

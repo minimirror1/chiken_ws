@@ -33,6 +33,11 @@ from animatronic_motion.patterns import (
     load_pattern_by_name,
     validate_pattern_yaml,
 )
+from animatronic_motion.web_motion import (
+    interpolate_web_motion,
+    parse_web_motion_yaml,
+    validate_web_motion_yaml,
+)
 
 
 class MotionNode(Node):
@@ -45,7 +50,7 @@ class MotionNode(Node):
         self.declare_parameter("default_mode", "stopped")
         self.declare_parameter("pattern_lock_ms", 4000)
         self.declare_parameter("second_look_delay_ms", 2500)
-        self.declare_parameter("publish_rate_hz", 30.0)
+        self.declare_parameter("publish_rate_hz", 50.0)
         self.declare_parameter("mock_mode", True)
 
         self._namespace = _normalize_namespace(
@@ -277,7 +282,10 @@ class MotionNode(Node):
                 response.warnings = []
                 return response
 
-        errors, warnings = validate_pattern_yaml(pattern_yaml)
+        if pattern_yaml.strip() and _looks_like_web_motion_yaml(pattern_yaml):
+            errors, warnings = validate_web_motion_yaml(pattern_yaml)
+        else:
+            errors, warnings = validate_pattern_yaml(pattern_yaml)
         response.valid = not errors
         response.errors = errors
         response.warnings = warnings
@@ -300,10 +308,17 @@ class MotionNode(Node):
     def _execute_run_pattern(self, goal_handle):
         goal = goal_handle.request
         if goal.preview_only:
-            return self._preview_pattern(goal_handle, goal.pattern_name)
+            return self._preview_pattern(goal_handle, goal.pattern_name, goal.pattern_yaml)
 
         try:
-            pattern = load_pattern_by_name(self._pattern_dir, goal.pattern_name)
+            if goal.pattern_yaml.strip():
+                pattern = parse_web_motion_yaml(goal.pattern_yaml, goal.pattern_name or "inline")
+                interpolator = interpolate_web_motion
+                pattern_source = "inline"
+            else:
+                pattern = load_pattern_by_name(self._pattern_dir, goal.pattern_name)
+                interpolator = interpolate_pattern
+                pattern_source = pattern.name
         except (FileNotFoundError, ValueError) as exc:
             goal_handle.abort()
             return _run_pattern_result(False, str(exc))
@@ -320,13 +335,15 @@ class MotionNode(Node):
             self._lock_for_ms(self._pattern_lock_ms)
 
         self._publish_event(EventLog.INFO, "pattern_started", pattern.name)
-        start_ns = self._now_ns()
-        period_sec = 1.0 / max(self._publish_rate_hz, 1.0)
+        start_ns = time.monotonic_ns()
+        period_ns = int(1_000_000_000 / max(self._publish_rate_hz, 1.0))
+        tick = 0
 
         while rclpy.ok() and not stop_event.is_set():
-            elapsed_ms = int((self._now_ns() - start_ns) / 1_000_000)
-            values, progress, keyframe = interpolate_pattern(pattern, elapsed_ms)
-            self._publish_joint_targets(values, f"motion_node:{pattern.name}")
+            now_ns = time.monotonic_ns()
+            elapsed_ms = int((now_ns - start_ns) / 1_000_000)
+            values, progress, keyframe = interpolator(pattern, elapsed_ms)
+            self._publish_joint_targets(values, f"motion_node:{pattern_source}")
             self._publish_feedback(goal_handle, progress, keyframe)
             with self._state_lock:
                 self._progress = progress
@@ -338,7 +355,11 @@ class MotionNode(Node):
                 return _run_pattern_result(False, "pattern canceled")
             if elapsed_ms >= pattern.duration_ms:
                 break
-            time.sleep(period_sec)
+            tick += 1
+            next_ns = start_ns + tick * period_ns
+            sleep_sec = (next_ns - time.monotonic_ns()) / 1_000_000_000
+            if sleep_sec > 0:
+                time.sleep(sleep_sec)
 
         if stop_event.is_set():
             goal_handle.abort()
@@ -354,9 +375,12 @@ class MotionNode(Node):
         goal_handle.succeed()
         return _run_pattern_result(True, "pattern completed")
 
-    def _preview_pattern(self, goal_handle, pattern_name: str):
+    def _preview_pattern(self, goal_handle, pattern_name: str, pattern_yaml: str = ""):
         try:
-            pattern = load_pattern_by_name(self._pattern_dir, pattern_name)
+            if pattern_yaml.strip():
+                pattern = parse_web_motion_yaml(pattern_yaml, pattern_name or "inline")
+            else:
+                pattern = load_pattern_by_name(self._pattern_dir, pattern_name)
         except (FileNotFoundError, ValueError) as exc:
             goal_handle.abort()
             return _run_pattern_result(False, str(exc))
@@ -448,6 +472,16 @@ def _normalize_namespace(namespace: str) -> str:
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return min(max(value, minimum), maximum)
+
+
+def _looks_like_web_motion_yaml(pattern_yaml: str) -> bool:
+    try:
+        import yaml
+
+        data = yaml.safe_load(pattern_yaml)
+    except Exception:
+        return False
+    return isinstance(data, dict) and "tracks" in data
 
 
 def _run_pattern_result(success: bool, message: str) -> RunPattern.Result:

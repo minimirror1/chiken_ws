@@ -436,6 +436,22 @@ window.RosBridge = (function() {
     return bridge.sendJoints(Store.state.joints);
   };
 
+  Store.runMotionPattern = function(patternName, patternYaml, options = {}) {
+    return bridge.api('/api/motion/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        pattern_name: patternName || '',
+        pattern_yaml: patternYaml || '',
+        preview_only: !!options.preview_only,
+        allow_interrupt: options.allow_interrupt !== false,
+      }),
+    });
+  };
+
+  Store.stopRosMotion = function() {
+    return bridge.api('/api/stop', { method: 'POST' });
+  };
+
   // Store 메서드 오버라이드 → API 연동
   const _setMode = Store.setMode.bind(Store);
   Store.setMode = function(m) {

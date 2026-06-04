@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import pi
+import threading
 from typing import Dict, Iterable, List
 
 import rclpy
@@ -161,6 +162,10 @@ class DynamixelBackend:
     def read_diagnostics(self) -> List[MotorDiagnostic]:
         raise NotImplementedError
 
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        del field
+        return None
+
     def home(self) -> None:
         raise NotImplementedError
 
@@ -230,6 +235,18 @@ class MockDynamixelBackend(DynamixelBackend):
             diagnostic.error_message = state.error_message
             diagnostics.append(diagnostic)
         return diagnostics
+
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        diagnostics = self.read_diagnostics()
+        if field == "position":
+            return {diagnostic.id: diagnostic.raw_position for diagnostic in diagnostics}
+        if field == "voltage":
+            return {diagnostic.id: diagnostic.voltage_v for diagnostic in diagnostics}
+        if field == "temperature":
+            return {diagnostic.id: diagnostic.temperature_c for diagnostic in diagnostics}
+        if field == "load":
+            return {diagnostic.id: diagnostic.load for diagnostic in diagnostics}
+        raise ValueError(f"Unsupported diagnostic field: {field}")
 
     def home(self) -> None:
         self.write_joint_targets(
@@ -362,6 +379,9 @@ class RealDynamixelBackend(DynamixelBackend):
             diagnostic.error_message = self._last_errors.get(config.motor_id, "")
             diagnostics.append(diagnostic)
         return diagnostics
+
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        return self._read_profile_field(field)
 
     def home(self) -> None:
         self.write_joint_targets(
@@ -654,7 +674,12 @@ class MotorNode(Node):
         self._connected = self._backend.connect()
         self._torque_enabled = False
         self._last_diagnostics: List[MotorDiagnostic] = []
+        self._diagnostic_fields = ("position", "voltage", "temperature", "load")
+        self._diagnostic_field_index = 0
         self._stopped = False
+        self._target_lock = threading.Lock()
+        self._latest_targets: dict[str, int] = {}
+        self._target_dirty = False
 
         self.create_subscription(
             Bool,
@@ -703,7 +728,9 @@ class MotorNode(Node):
         diagnostics_period = 1.0 / float(
             self.get_parameter("diagnostics_publish_rate_hz").value
         )
+        command_period = 1.0 / float(self.get_parameter("command_write_rate_hz").value)
         self.create_timer(state_period, self._publish_joint_states)
+        self.create_timer(command_period, self._write_latest_targets)
         self.create_timer(diagnostics_period, self._publish_diagnostics_and_status)
 
         mode = "mock" if mock_mode else "real"
@@ -719,6 +746,7 @@ class MotorNode(Node):
         self.declare_parameter("mock_mode", True)
         self.declare_parameter("state_publish_rate_hz", 20.0)
         self.declare_parameter("diagnostics_publish_rate_hz", 2.0)
+        self.declare_parameter("command_write_rate_hz", 50.0)
         self.declare_parameter("joint_names", list(DEFAULT_JOINT_NAMES))
 
         self.declare_parameter("motor_ids", [1, 2, 3, 4])
@@ -842,6 +870,17 @@ class MotorNode(Node):
 
         if not targets:
             return
+
+        with self._target_lock:
+            self._latest_targets = targets
+            self._target_dirty = True
+
+    def _write_latest_targets(self) -> None:
+        with self._target_lock:
+            if not self._target_dirty:
+                return
+            targets = dict(self._latest_targets)
+            self._target_dirty = False
 
         try:
             self._backend.write_joint_targets(targets)
@@ -1018,7 +1057,7 @@ class MotorNode(Node):
 
     def _publish_diagnostics_and_status(self) -> None:
         try:
-            self._last_diagnostics = self._backend.read_diagnostics()
+            self._refresh_diagnostics()
         except RuntimeError as exc:
             self.get_logger().error(str(exc))
             self._last_diagnostics = []
@@ -1063,6 +1102,43 @@ class MotorNode(Node):
             status.status = MotorStatus.OK
             status.message = "OK"
         self._status_pub.publish(status)
+
+    def _refresh_diagnostics(self) -> None:
+        field = self._diagnostic_fields[self._diagnostic_field_index]
+        self._diagnostic_field_index = (
+            self._diagnostic_field_index + 1
+        ) % len(self._diagnostic_fields)
+        values = self._backend.read_diagnostic_field(field)
+        if values is None:
+            self._last_diagnostics = self._backend.read_diagnostics()
+            return
+
+        previous = {
+            diagnostic.joint_name: diagnostic for diagnostic in self._last_diagnostics
+        }
+        next_diagnostics: list[MotorDiagnostic] = []
+        failure_counts = self._backend.failure_counts()
+        torque_by_id = self._backend.torque_enabled_by_id()
+        for config in self._motor_configs:
+            diagnostic = previous.get(config.joint_name) or MotorDiagnostic()
+            diagnostic.id = config.motor_id
+            diagnostic.joint_name = config.joint_name
+            diagnostic.model = config.model
+            if field == "position":
+                diagnostic.raw_position = int(values.get(config.motor_id, config.home_raw))
+                diagnostic.angle_deg = raw_to_angle_deg(diagnostic.raw_position, config)
+            elif field == "voltage":
+                diagnostic.voltage_v = float(values.get(config.motor_id, diagnostic.voltage_v))
+            elif field == "temperature":
+                diagnostic.temperature_c = float(
+                    values.get(config.motor_id, diagnostic.temperature_c)
+                )
+            elif field == "load":
+                diagnostic.load = float(values.get(config.motor_id, diagnostic.load))
+            diagnostic.torque_enabled = torque_by_id.get(config.motor_id, False)
+            diagnostic.error_code = min(failure_counts.get(config.motor_id, 0), 255)
+            next_diagnostics.append(diagnostic)
+        self._last_diagnostics = next_diagnostics
 
     def _publish_joint_states(self) -> None:
         diagnostics_by_joint = {
