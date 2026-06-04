@@ -867,6 +867,11 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   font-weight: 600;
   color: var(--cy);
 }
+.motor-raw-control .raw-send {
+  grid-column: 1 / -1;
+  width: 100%;
+  justify-content: center;
+}
 .motor-range {
   display: grid;
   gap: 8px;
@@ -888,6 +893,7 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   width: 160px;
   height: 160px;
   display: block;
+  cursor: crosshair;
 }
 .dial-case {
   fill: #202832;
@@ -927,6 +933,12 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke-linecap: round;
   filter: drop-shadow(0 2px 3px rgba(0,0,0,.45));
 }
+.dial-target-arm {
+  stroke: var(--cy);
+  stroke-width: 9;
+  stroke-linecap: round;
+  opacity: .38;
+}
 .dial-hub {
   fill: #303944;
   stroke: var(--cy-line);
@@ -945,6 +957,12 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke: #fff;
   stroke-width: 1.5;
   filter: drop-shadow(0 0 5px var(--cy-glow));
+}
+.dial-target-dot {
+  fill: var(--cy);
+  stroke: #fff;
+  stroke-width: 1.5;
+  opacity: .45;
 }
 .dial-label {
   fill: var(--tx-2);
@@ -981,6 +999,7 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   background:
     linear-gradient(90deg, var(--cy-dim), rgba(82,214,163,.15)),
     var(--bg-2);
+  cursor: crosshair;
 }
 .motor-range-track.rev {
   background:
@@ -998,6 +1017,13 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 }
 .motor-range-track::before { left: 0; }
 .motor-range-track::after { right: 0; }
+.motor-range .target-fill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border-radius: 2px;
+  background: rgba(63,199,212,.26);
+}
 .motor-range .mark {
   position: absolute;
   top: 3px;
@@ -1016,6 +1042,14 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   border: 1px solid #fff;
   background: var(--cy);
   box-shadow: 0 0 10px var(--cy-glow);
+}
+.motor-range .mark.target {
+  width: 8px;
+  top: 0;
+  bottom: 0;
+  border: 1px solid rgba(255,255,255,.65);
+  background: rgba(63,199,212,.55);
+  box-shadow: 0 0 8px rgba(63,199,212,.22);
 }
 .motor-range-labels {
   display: flex;

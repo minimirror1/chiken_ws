@@ -90,6 +90,11 @@ function rawToDialDeg(raw) {
   return 180 - rawToServoDeg(raw);
 }
 
+function dialDegToRaw(deg) {
+  const servoDeg = (180 - deg + 360) % 360;
+  return Math.round((servoDeg / 360) * 4095);
+}
+
 function polarPoint(cx, cy, radius, deg) {
   const rad = (deg - 90) * Math.PI / 180;
   return {
@@ -109,23 +114,34 @@ function dialArcPath(cx, cy, radius, startDeg, endDeg, reversed) {
   return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${radius} ${radius} 0 ${large} ${sweep} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
 }
 
-function RobotisDial({ row, currentRaw }) {
+function RobotisDial({ row, currentRaw, targetRaw, onTargetRawChange }) {
   const currentPct = countToPercent(row, currentRaw);
-  const homePct = countToPercent(row, row.raw_home);
+  const targetPct = countToPercent(row, targetRaw);
   const raw0Deg = rawToServoDeg(row.raw_0_percent);
   const raw100Deg = rawToServoDeg(row.raw_100_percent);
   const raw0Dial = rawToDialDeg(row.raw_0_percent);
   const raw100Dial = rawToDialDeg(row.raw_100_percent);
   const currentAngle = rawToDialDeg(currentRaw);
+  const targetAngle = rawToDialDeg(targetRaw);
   const homeAngle = rawToDialDeg(row.raw_home);
   const arm = polarPoint(90, 90, 47, currentAngle);
+  const targetArm = polarPoint(90, 90, 47, targetAngle);
   const home = polarPoint(90, 90, 57, homeAngle);
   const current = polarPoint(90, 90, 65, currentAngle);
+  const target = polarPoint(90, 90, 65, targetAngle);
   const reversed = motorDirection(row) === '역방향';
+  const onDialClick = (e) => {
+    if (!onTargetRawChange) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 180;
+    const y = ((e.clientY - rect.top) / rect.height) * 180;
+    const deg = (Math.atan2(y - 90, x - 90) * 180 / Math.PI + 90 + 360) % 360;
+    onTargetRawChange(clampRawForRow(row, dialDegToRaw(deg)));
+  };
 
   return (
     <div className="robotis-dial">
-      <svg viewBox="0 0 180 180" aria-label="ROBOTIS style virtual dial">
+      <svg viewBox="0 0 180 180" aria-label="ROBOTIS style virtual dial" onClick={onDialClick}>
         <circle className="dial-case" cx="90" cy="90" r="72" />
         <circle className="dial-face" cx="90" cy="90" r="57" />
         <path className={`dial-range ${reversed ? 'rev' : ''}`} d={dialArcPath(90, 90, 67, raw0Dial, raw100Dial, !reversed)} />
@@ -140,16 +156,20 @@ function RobotisDial({ row, currentRaw }) {
         <text className="dial-label bottom" x="90" y="166">0/360°</text>
         <text className="dial-label left" x="24" y="94">270°</text>
         <line className="dial-home-line" x1="90" y1="90" x2={home.x} y2={home.y} />
+        <line className="dial-target-arm" x1="90" y1="90" x2={targetArm.x} y2={targetArm.y} />
         <line className="dial-arm" x1="90" y1="90" x2={arm.x} y2={arm.y} />
         <circle className="dial-hub" cx="90" cy="90" r="16" />
         <circle className="dial-bolt" cx="90" cy="90" r="4" />
         <circle className="dial-home-dot" cx={home.x} cy={home.y} r="4" />
+        <circle className="dial-target-dot" cx={target.x} cy={target.y} r="5" />
         <circle className="dial-current-dot" cx={current.x} cy={current.y} r="5" />
       </svg>
       <div className="robotis-dial-readout">
         <span><b>{currentRaw}</b> cnt</span>
         <span>{rawToServoDeg(currentRaw).toFixed(1)}° raw</span>
         <span>{currentPct.toFixed(1)}%</span>
+        <span>목표 <b>{targetRaw}</b> cnt</span>
+        <span>목표 {targetPct.toFixed(1)}%</span>
         <span>{raw0Deg.toFixed(1)}° → {raw100Deg.toFixed(1)}°</span>
         <span>{motorDirection(row)}</span>
       </div>
@@ -181,13 +201,25 @@ function validateMotorRows(rows) {
   return errors;
 }
 
-function MotorRangeBar({ row, currentRaw }) {
+function MotorRangeBar({ row, currentRaw, targetRaw, onTargetRawChange }) {
   const homePct = pctClamp(countToPercent(row, row.raw_home));
   const curPct = pctClamp(countToPercent(row, currentRaw));
+  const targetPct = pctClamp(countToPercent(row, targetRaw));
+  const fillLeft = Math.min(curPct, targetPct);
+  const fillWidth = Math.abs(targetPct - curPct);
+  const onTrackClick = (e) => {
+    if (!onTargetRawChange) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = pctClamp(((e.clientX - rect.left) / rect.width) * 100);
+    const raw = Number(row.raw_0_percent) + (pct / 100) * (Number(row.raw_100_percent) - Number(row.raw_0_percent));
+    onTargetRawChange(clampRawForRow(row, raw));
+  };
   return (
     <div className="motor-range">
-      <div className={`motor-range-track ${motorDirection(row) === '역방향' ? 'rev' : ''}`}>
+      <div className={`motor-range-track ${motorDirection(row) === '역방향' ? 'rev' : ''}`} onClick={onTrackClick}>
+        <span className="target-fill" style={{ left: fillLeft + '%', width: fillWidth + '%' }}></span>
         <span className="mark home" style={{ left: homePct + '%' }} title="정자세"></span>
+        <span className="mark target" style={{ left: targetPct + '%' }} title="목표 위치"></span>
         <span className="mark current" style={{ left: curPct + '%' }} title="현재 위치"></span>
       </div>
       <div className="motor-range-labels">
@@ -199,16 +231,16 @@ function MotorRangeBar({ row, currentRaw }) {
   );
 }
 
-function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
-  const [input, setInput] = React.useState(String(currentRaw));
+function MotorRawControl({ row, targetRaw, onTargetRawChange, sendRaw, disabled = false, sendDisabled = false }) {
+  const [input, setInput] = React.useState(String(targetRaw));
   const holdRef = React.useRef(null);
-  const currentRef = React.useRef(currentRaw);
+  const targetRef = React.useRef(targetRaw);
 
   React.useEffect(() => {
-    const next = clampRawForRow(row, currentRaw);
-    currentRef.current = next;
+    const next = clampRawForRow(row, targetRaw);
+    targetRef.current = next;
     setInput(String(next));
-  }, [currentRaw, row && row.joint_name]);
+  }, [targetRaw, row && row.joint_name]);
 
   React.useEffect(() => () => {
     if (holdRef.current) clearInterval(holdRef.current);
@@ -216,14 +248,14 @@ function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
 
   const step = (delta) => {
     if (disabled) return;
-    const next = clampRawForRow(row, Number(currentRef.current) + delta);
-    currentRef.current = next;
+    const next = clampRawForRow(row, Number(targetRef.current) + delta);
+    targetRef.current = next;
     setInput(String(next));
-    commandRaw(next);
+    onTargetRawChange(next);
   };
   const startHold = (delta) => {
     if (disabled) return;
-    currentRef.current = clampRawForRow(row, input);
+    targetRef.current = clampRawForRow(row, input);
     step(delta);
     if (holdRef.current) clearInterval(holdRef.current);
     holdRef.current = setInterval(() => step(delta), 90);
@@ -235,9 +267,9 @@ function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
   const commit = () => {
     if (disabled) return;
     const next = clampRawForRow(row, input);
-    currentRef.current = next;
+    targetRef.current = next;
     setInput(String(next));
-    commandRaw(next);
+    onTargetRawChange(next);
   };
 
   return (
@@ -258,7 +290,7 @@ function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
         value={input}
         onChange={e => {
           setInput(e.target.value);
-          currentRef.current = e.target.value;
+          targetRef.current = e.target.value;
         }}
         onKeyDown={e => { if (e.key === 'Enter') commit(); }}
         onBlur={commit}
@@ -273,6 +305,12 @@ function MotorRawControl({ row, currentRaw, commandRaw, disabled = false }) {
         onLostPointerCapture={stopHold}
         title="+1 raw count"
       >→</button>
+      <button
+        type="button"
+        className="btn solid raw-send"
+        disabled={sendDisabled}
+        onClick={() => sendRaw(clampRawForRow(row, targetRef.current))}
+      >위치 송신</button>
     </div>
   );
 }
@@ -285,7 +323,7 @@ function TabMotorSettings() {
   const [busy, setBusy] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [remoteErrors, setRemoteErrors] = React.useState([]);
-  const [manualRaw, setManualRaw] = React.useState({});
+  const [previewRaw, setPreviewRaw] = React.useState({});
 
   React.useEffect(() => {
     if (!window.RosBridge || !window.RosBridge.rosMode) return;
@@ -311,15 +349,27 @@ function TabMotorSettings() {
   const torqueKnown = selectedMotor.torque !== undefined && s.motorSynced;
   const selectedTorque = torqueKnown ? selectedMotor.torque : false;
   const selectedRaw = selectedRow
-    ? (manualRaw[selectedRow.joint_name] !== undefined
-      ? manualRaw[selectedRow.joint_name]
-      : (selectedMotor.raw !== undefined ? selectedMotor.raw : selectedRow.raw_home))
+    ? (selectedMotor.raw !== undefined ? selectedMotor.raw : selectedRow.raw_home)
+    : 0;
+  const selectedPreviewRaw = selectedRow
+    ? (previewRaw[selectedRow.joint_name] !== undefined
+      ? clampRawForRow(selectedRow, previewRaw[selectedRow.joint_name])
+      : clampRawForRow(selectedRow, selectedRaw))
     : 0;
   const anyTorqueOn = rows.some(row => {
     const motor = s.motors[row.joint_name] || {};
     return motor.torque !== undefined ? motor.torque : s.torque;
   });
   const syncReady = !s.rosConnected || s.motorSynced;
+  const sendDisabled = !!busy || !selectedRow || !syncReady || dirty || !selectedTorque;
+
+  React.useEffect(() => {
+    if (!selectedRow) return;
+    setPreviewRaw(raws => ({
+      ...raws,
+      [selectedRow.joint_name]: clampRawForRow(selectedRow, selectedRaw),
+    }));
+  }, [selectedRow && selectedRow.joint_name, selectedRaw]);
 
   const updateRow = (index, patch) => {
     setRows(rs => rs.map((r, i) => i === index ? { ...r, ...patch } : r));
@@ -347,6 +397,11 @@ function TabMotorSettings() {
   };
   const numberPatch = (key, value) => ({ [key]: parseFloat(value || '0') });
   const document = () => ({ calibrations: editedCalibration });
+  const updateSelectedPreviewRaw = (raw) => {
+    if (!selectedRow) return;
+    const nextRaw = clampRawForRow(selectedRow, raw);
+    setPreviewRaw(raws => ({ ...raws, [selectedRow.joint_name]: nextRaw }));
+  };
 
   const setAllTorque = async (enabled) => {
     const motors = { ...s.motors };
@@ -415,7 +470,6 @@ function TabMotorSettings() {
       return;
     }
     const nextRaw = clampRawForRow(selectedRow, raw);
-    setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
     if (window.RosBridge && window.RosBridge.rosMode) {
       window.RosBridge.api(`/api/motor/${encodeURIComponent(selectedRow.joint_name)}/raw`, {
         method: 'POST',
@@ -600,12 +654,26 @@ function TabMotorSettings() {
             {!torqueKnown && <Badge kind="warn">토크 상태 동기화 대기</Badge>}
             {!syncReady && <Badge kind="warn">현재 위치 동기화 대기</Badge>}
             {dirty && <Badge kind="warn">매핑 적용 필요</Badge>}
-            <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
-            <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />
+            <RobotisDial
+              row={selectedRow}
+              currentRaw={selectedRaw}
+              targetRaw={selectedPreviewRaw}
+              onTargetRawChange={updateSelectedPreviewRaw}
+            />
+            <MotorRangeBar
+              row={selectedRow}
+              currentRaw={selectedRaw}
+              targetRaw={selectedPreviewRaw}
+              onTargetRawChange={updateSelectedPreviewRaw}
+            />
             <div className="motor-jog-bottom">
-              {syncReady
-                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} disabled={dirty || !selectedTorque} />
-                : <button className="btn ghost block" disabled>동기화 대기</button>}
+              <MotorRawControl
+                row={selectedRow}
+                targetRaw={selectedPreviewRaw}
+                onTargetRawChange={updateSelectedPreviewRaw}
+                sendRaw={commandSelectedRaw}
+                sendDisabled={sendDisabled}
+              />
             </div>
           </>
         )}
