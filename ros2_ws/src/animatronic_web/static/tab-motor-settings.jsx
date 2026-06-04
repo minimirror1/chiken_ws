@@ -239,6 +239,7 @@ function MotorRawControl({
   resetRaw,
   disabled = false,
   sendDisabled = false,
+  sendDisabledReason = '',
   resetDisabled = false,
 }) {
   const [input, setInput] = React.useState(String(targetRaw));
@@ -327,6 +328,9 @@ function MotorRawControl({
           disabled={sendDisabled}
           onClick={() => sendRaw(clampRawForRow(row, targetRef.current))}
         >위치 송신</button>
+        {sendDisabled && sendDisabledReason && (
+          <div className="raw-send-reason">{sendDisabledReason}</div>
+        )}
       </div>
     </div>
   );
@@ -383,6 +387,13 @@ function TabMotorSettings() {
   });
   const syncReady = !s.rosConnected || s.motorSynced;
   const sendDisabled = !!busy || !selectedRow || !syncReady || dirty || !selectedTorque;
+  const sendDisabledReason = !syncReady
+    ? '동기화 대기'
+    : dirty
+      ? '매핑 적용 필요'
+      : !selectedTorque
+        ? '토크 OFF'
+        : '';
 
   React.useEffect(() => {
     if (!selectedRow) return;
@@ -719,6 +730,7 @@ function TabMotorSettings() {
                 sendRaw={commandSelectedRaw}
                 resetRaw={resetSelectedPreviewRaw}
                 sendDisabled={sendDisabled}
+                sendDisabledReason={sendDisabledReason}
                 resetDisabled={!selectedRow || !syncReady}
               />
             </div>
