@@ -673,10 +673,14 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 }
 .motor-jog-bottom {
   margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
 }
 .motor-torque-toggle {
   display: flex;
   align-items: center;
+  align-self: flex-start;
+  justify-content: flex-start;
   gap: 10px;
 }
 .torque-label {
@@ -846,6 +850,7 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   grid-template-columns: 46px minmax(0, 1fr) 46px;
   gap: 8px;
   align-items: center;
+  width: min(100%, 320px);
 }
 .motor-raw-control .raw-step {
   height: 38px;
@@ -875,7 +880,8 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 }
 .motor-raw-control .raw-send {
   grid-column: 1 / -1;
-  width: 100%;
+  justify-self: end;
+  min-width: 120px;
   justify-content: center;
 }
 .motor-range {
