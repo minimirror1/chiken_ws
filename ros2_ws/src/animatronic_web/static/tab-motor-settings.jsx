@@ -504,6 +504,19 @@ function TabMotorSettings() {
           }
         >
           <table className="tbl motor-map">
+            <colgroup>
+              <col className="c-joint" />
+              <col className="c-id" />
+              <col className="c-model" />
+              <col className="c-cnt" />
+              <col className="c-cnt" />
+              <col className="c-cnt" />
+              <col className="c-dir" />
+              <col className="c-current" />
+              <col className="c-pct" />
+              <col className="c-state" />
+              <col className="c-action" />
+            </colgroup>
             <thead>
               <tr>
                 <th>JOINT</th><th className="num">ID</th><th>MODEL</th>

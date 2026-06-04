@@ -754,9 +754,28 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
 }
 .torque-switch input:checked ~ .torque-track .torque-off-txt { opacity: 0; }
 .torque-switch input:checked ~ .torque-track .torque-on-txt  { opacity: 1; }
+.motor-map {
+  table-layout: fixed;
+}
+.motor-map .c-joint { width: 18%; }
+.motor-map .c-id { width: 58px; }
+.motor-map .c-model { width: 130px; }
+.motor-map .c-cnt { width: 94px; }
+.motor-map .c-dir { width: 74px; }
+.motor-map .c-current { width: 76px; }
+.motor-map .c-pct { width: 76px; }
+.motor-map .c-state { width: 70px; }
+.motor-map .c-action { width: 36px; }
 .motor-map th,
 .motor-map td {
   vertical-align: middle;
+}
+.motor-map th.num {
+  text-align: right;
+}
+.motor-map th:last-child,
+.motor-map td:last-child {
+  text-align: right;
 }
 .motor-map-summary {
   display: inline-flex;
@@ -772,6 +791,7 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   min-height: 28px;
   padding: 4px 7px;
   font-size: 11px;
+  min-width: 0;
 }
 .motor-map .ninput.dup {
   border-color: rgba(230,95,80,.72);
@@ -779,11 +799,11 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   color: var(--tx-0);
 }
 .motor-map .smnum {
-  width: 54px;
+  max-width: 54px;
   margin-left: auto;
 }
 .motor-map .cnt {
-  width: 86px;
+  max-width: 86px;
   margin-left: auto;
 }
 .motor-map-actions {
