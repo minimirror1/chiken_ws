@@ -324,6 +324,8 @@ function TabMotorSettings() {
   const [message, setMessage] = React.useState('');
   const [remoteErrors, setRemoteErrors] = React.useState([]);
   const [previewRaw, setPreviewRaw] = React.useState({});
+  const [previewDirty, setPreviewDirty] = React.useState({});
+  const selectedJointRef = React.useRef('');
 
   React.useEffect(() => {
     if (!window.RosBridge || !window.RosBridge.rosMode) return;
@@ -345,6 +347,7 @@ function TabMotorSettings() {
   const dirty = JSON.stringify(editedCalibration) !== JSON.stringify(activeCalibration);
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
+  const selectedJoint = selectedRow ? selectedRow.joint_name : '';
   const selectedMotor = selectedRow ? (s.motors[selectedRow.joint_name] || {}) : {};
   const torqueKnown = selectedMotor.torque !== undefined && s.motorSynced;
   const selectedTorque = torqueKnown ? selectedMotor.torque : false;
@@ -356,6 +359,7 @@ function TabMotorSettings() {
       ? clampRawForRow(selectedRow, previewRaw[selectedRow.joint_name])
       : clampRawForRow(selectedRow, selectedRaw))
     : 0;
+  const selectedPreviewDirty = selectedJoint ? !!previewDirty[selectedJoint] : false;
   const anyTorqueOn = rows.some(row => {
     const motor = s.motors[row.joint_name] || {};
     return motor.torque !== undefined ? motor.torque : s.torque;
@@ -365,11 +369,19 @@ function TabMotorSettings() {
 
   React.useEffect(() => {
     if (!selectedRow) return;
+    const nextRaw = clampRawForRow(selectedRow, selectedRaw);
+    if (selectedJointRef.current !== selectedJoint) {
+      selectedJointRef.current = selectedJoint;
+      setPreviewDirty(dirtyMap => ({ ...dirtyMap, [selectedJoint]: false }));
+      setPreviewRaw(raws => ({ ...raws, [selectedJoint]: nextRaw }));
+      return;
+    }
+    if (selectedPreviewDirty) return;
     setPreviewRaw(raws => ({
       ...raws,
-      [selectedRow.joint_name]: clampRawForRow(selectedRow, selectedRaw),
+      [selectedJoint]: nextRaw,
     }));
-  }, [selectedRow && selectedRow.joint_name, selectedRaw]);
+  }, [selectedJoint, selectedRaw, selectedPreviewDirty]);
 
   const updateRow = (index, patch) => {
     setRows(rs => rs.map((r, i) => i === index ? { ...r, ...patch } : r));
@@ -401,6 +413,7 @@ function TabMotorSettings() {
     if (!selectedRow) return;
     const nextRaw = clampRawForRow(selectedRow, raw);
     setPreviewRaw(raws => ({ ...raws, [selectedRow.joint_name]: nextRaw }));
+    setPreviewDirty(dirtyMap => ({ ...dirtyMap, [selectedRow.joint_name]: true }));
   };
 
   const setAllTorque = async (enabled) => {
