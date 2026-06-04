@@ -336,24 +336,31 @@ window.RosBridge = (function() {
       // Motor diagnostics
       const diagnostics = data.motor_diagnostics && (data.motor_diagnostics.diagnostics || data.motor_diagnostics.motors);
       if (Array.isArray(diagnostics)) {
-        const motors = {};
+        const motors = { ...Store.state.motors };
         JOINT_IDS.forEach(id => { motors[id] = { ...Store.state.motors[id] }; });
         diagnostics.forEach(m => {
           const id = m.joint_name;
-          if (id && motors[id]) {
+          if (id) {
+            const current = motors[id] || {
+              volt: 0, temp: 0, load: 0, pos: 0, raw: 2048,
+              torque: false, error: 'OK', model: '',
+            };
             motors[id] = {
-              volt: m.voltage_v !== undefined ? m.voltage_v : (m.voltage !== undefined ? m.voltage : motors[id].volt),
-              temp: m.temperature_c !== undefined ? m.temperature_c : (m.temperature !== undefined ? m.temperature : motors[id].temp),
-              load: m.load !== undefined ? m.load * 100 : motors[id].load,
-              pos: m.angle_deg !== undefined ? m.angle_deg : (m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : motors[id].pos),
-              raw: m.raw_position !== undefined ? m.raw_position : (m.present_position !== undefined ? m.present_position : motors[id].raw),
-              torque: m.torque_enabled !== undefined ? m.torque_enabled : motors[id].torque,
+              volt: m.voltage_v !== undefined ? m.voltage_v : (m.voltage !== undefined ? m.voltage : current.volt),
+              temp: m.temperature_c !== undefined ? m.temperature_c : (m.temperature !== undefined ? m.temperature : current.temp),
+              load: m.load !== undefined ? m.load * 100 : current.load,
+              pos: m.angle_deg !== undefined ? m.angle_deg : (m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : current.pos),
+              raw: m.raw_position !== undefined ? m.raw_position : (m.present_position !== undefined ? m.present_position : current.raw),
+              torque: m.torque_enabled !== undefined ? m.torque_enabled : current.torque,
               error: (m.error_code === 0 || m.error_code === undefined) ? 'OK' : 'E' + m.error_code,
-              model: m.model || m.model_name || motors[id].model,
+              model: m.model || m.model_name || current.model,
             };
           }
         });
         patch.motors = motors;
+        patch.torque = diagnostics.length
+          ? diagnostics.every(m => !!m.torque_enabled)
+          : Store.state.torque;
         patch.motorSynced = true;
       }
 

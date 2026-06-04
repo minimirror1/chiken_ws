@@ -308,7 +308,8 @@ function TabMotorSettings() {
   const reversed = rows.filter(r => motorDirection(r) === '역방향').length;
   const selectedRow = rows[selected] || rows[0];
   const selectedMotor = selectedRow ? (s.motors[selectedRow.joint_name] || {}) : {};
-  const selectedTorque = selectedMotor.torque !== undefined ? selectedMotor.torque : s.torque;
+  const torqueKnown = selectedMotor.torque !== undefined && s.motorSynced;
+  const selectedTorque = torqueKnown ? selectedMotor.torque : false;
   const selectedRaw = selectedRow
     ? (manualRaw[selectedRow.joint_name] !== undefined
       ? manualRaw[selectedRow.joint_name]
@@ -409,6 +410,10 @@ function TabMotorSettings() {
       setMessage('모터 매핑을 ROS 즉시 적용 또는 저장+적용 후 위치 명령을 보낼 수 있습니다.');
       return;
     }
+    if (!selectedTorque) {
+      setMessage('선택 모터 토크 ON 상태에서만 위치 명령을 보낼 수 있습니다.');
+      return;
+    }
     const nextRaw = clampRawForRow(selectedRow, raw);
     setManualRaw(m => ({ ...m, [selectedRow.joint_name]: nextRaw }));
     if (window.RosBridge && window.RosBridge.rosMode) {
@@ -420,23 +425,33 @@ function TabMotorSettings() {
   };
   const commandTorque = (enabled) => {
     if (!selectedRow) return;
-    const motors = { ...s.motors };
-    motors[selectedRow.joint_name] = {
-      ...motors[selectedRow.joint_name],
-      torque: enabled,
-    };
-    const allTorque = JOINT_IDS.every(id => motors[id] && motors[id].torque);
-    Store.set({ torque: allTorque, motors });
-    Store.pushLog(
-      enabled ? 'ok' : 'warn',
-      'motor',
-      `${selectedRow.joint_name} 토크 ${enabled ? 'ON' : 'OFF'}`,
-    );
     if (window.RosBridge && window.RosBridge.rosMode) {
+      setBusy('토크 변경');
       window.RosBridge.api(`/api/motor/${selectedRow.id}/torque`, {
         method: 'POST',
         body: JSON.stringify({ enabled }),
-      }).catch(() => {});
+      })
+        .then(res => {
+          setMessage(res.message || `${selectedRow.joint_name} 토크 ${enabled ? 'ON' : 'OFF'} 요청 완료`);
+        })
+        .catch(e => {
+          const detail = e && e.detail ? e.detail : e;
+          setMessage((detail && detail.message) || '토크 변경 실패');
+        })
+        .finally(() => setBusy(''));
+    } else {
+      const motors = { ...s.motors };
+      motors[selectedRow.joint_name] = {
+        ...motors[selectedRow.joint_name],
+        torque: enabled,
+      };
+      const allTorque = rows.every(row => motors[row.joint_name] && motors[row.joint_name].torque);
+      Store.set({ torque: allTorque, motors });
+      Store.pushLog(
+        enabled ? 'ok' : 'warn',
+        'motor',
+        `${selectedRow.joint_name} 토크 ${enabled ? 'ON' : 'OFF'}`,
+      );
     }
   };
 
@@ -559,7 +574,7 @@ function TabMotorSettings() {
                 <input
                   type="checkbox"
                   checked={!!selectedTorque}
-                  disabled={!!busy}
+                  disabled={!!busy || !torqueKnown}
                   onChange={e => commandTorque(e.target.checked)}
                 />
                 <span className="torque-track">
@@ -569,13 +584,14 @@ function TabMotorSettings() {
                 </span>
               </label>
             </div>
+            {!torqueKnown && <Badge kind="warn">토크 상태 동기화 대기</Badge>}
             {!syncReady && <Badge kind="warn">현재 위치 동기화 대기</Badge>}
             {dirty && <Badge kind="warn">매핑 적용 필요</Badge>}
             <RobotisDial row={selectedRow} currentRaw={selectedRaw} />
             <MotorRangeBar row={selectedRow} currentRaw={selectedRaw} />
             <div className="motor-jog-bottom">
               {syncReady
-                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} disabled={dirty} />
+                ? <MotorRawControl row={selectedRow} currentRaw={selectedRaw} commandRaw={commandSelectedRaw} disabled={dirty || !selectedTorque} />
                 : <button className="btn ghost block" disabled>동기화 대기</button>}
             </div>
           </>
