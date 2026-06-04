@@ -962,6 +962,10 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke-linecap: round;
   opacity: .38;
 }
+.dial-target-arm.danger {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 5px var(--warn-dim));
+}
 .dial-hub {
   fill: #303944;
   stroke: var(--cy-line);
@@ -986,6 +990,10 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   stroke: #fff;
   stroke-width: 1.5;
   opacity: .45;
+}
+.dial-target-dot.danger {
+  fill: var(--warn);
+  filter: drop-shadow(0 0 6px var(--warn-dim));
 }
 .dial-label {
   fill: var(--tx-2);
@@ -1073,6 +1081,10 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   border: 1px solid rgba(255,255,255,.65);
   background: rgba(63,199,212,.55);
   box-shadow: 0 0 8px rgba(63,199,212,.22);
+}
+.motor-range .mark.target.danger {
+  background: var(--warn);
+  box-shadow: 0 0 10px var(--warn-dim);
 }
 .motor-range-labels {
   display: flex;

@@ -117,6 +117,7 @@ function dialArcPath(cx, cy, radius, startDeg, endDeg, reversed) {
 function RobotisDial({ row, currentRaw, targetRaw, onTargetRawChange }) {
   const currentPct = countToPercent(row, currentRaw);
   const targetPct = countToPercent(row, targetRaw);
+  const targetDanger = pctClamp(targetPct) <= 5 || pctClamp(targetPct) >= 95;
   const raw0Deg = rawToServoDeg(row.raw_0_percent);
   const raw100Deg = rawToServoDeg(row.raw_100_percent);
   const raw0Dial = rawToDialDeg(row.raw_0_percent);
@@ -156,12 +157,12 @@ function RobotisDial({ row, currentRaw, targetRaw, onTargetRawChange }) {
         <text className="dial-label bottom" x="90" y="166">0/360°</text>
         <text className="dial-label left" x="24" y="94">270°</text>
         <line className="dial-home-line" x1="90" y1="90" x2={home.x} y2={home.y} />
-        <line className="dial-target-arm" x1="90" y1="90" x2={targetArm.x} y2={targetArm.y} />
+        <line className={`dial-target-arm ${targetDanger ? 'danger' : ''}`} x1="90" y1="90" x2={targetArm.x} y2={targetArm.y} />
         <line className="dial-arm" x1="90" y1="90" x2={arm.x} y2={arm.y} />
         <circle className="dial-hub" cx="90" cy="90" r="16" />
         <circle className="dial-bolt" cx="90" cy="90" r="4" />
         <circle className="dial-home-dot" cx={home.x} cy={home.y} r="4" />
-        <circle className="dial-target-dot" cx={target.x} cy={target.y} r="5" />
+        <circle className={`dial-target-dot ${targetDanger ? 'danger' : ''}`} cx={target.x} cy={target.y} r="5" />
         <circle className="dial-current-dot" cx={current.x} cy={current.y} r="5" />
       </svg>
       <div className="robotis-dial-readout">
@@ -205,6 +206,7 @@ function MotorRangeBar({ row, currentRaw, targetRaw, onTargetRawChange }) {
   const homePct = pctClamp(countToPercent(row, row.raw_home));
   const curPct = pctClamp(countToPercent(row, currentRaw));
   const targetPct = pctClamp(countToPercent(row, targetRaw));
+  const targetDanger = targetPct <= 5 || targetPct >= 95;
   const fillLeft = Math.min(curPct, targetPct);
   const fillWidth = Math.abs(targetPct - curPct);
   const onTrackClick = (e) => {
@@ -219,7 +221,7 @@ function MotorRangeBar({ row, currentRaw, targetRaw, onTargetRawChange }) {
       <div className={`motor-range-track ${motorDirection(row) === '역방향' ? 'rev' : ''}`} onClick={onTrackClick}>
         <span className="target-fill" style={{ left: fillLeft + '%', width: fillWidth + '%' }}></span>
         <span className="mark home" style={{ left: homePct + '%' }} title="정자세"></span>
-        <span className="mark target" style={{ left: targetPct + '%' }} title="목표 위치"></span>
+        <span className={`mark target ${targetDanger ? 'danger' : ''}`} style={{ left: targetPct + '%' }} title="목표 위치"></span>
         <span className="mark current" style={{ left: curPct + '%' }} title="현재 위치"></span>
       </div>
       <div className="motor-range-labels">
