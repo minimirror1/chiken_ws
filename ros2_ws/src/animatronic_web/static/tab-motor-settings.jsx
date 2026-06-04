@@ -231,7 +231,16 @@ function MotorRangeBar({ row, currentRaw, targetRaw, onTargetRawChange }) {
   );
 }
 
-function MotorRawControl({ row, targetRaw, onTargetRawChange, sendRaw, disabled = false, sendDisabled = false }) {
+function MotorRawControl({
+  row,
+  targetRaw,
+  onTargetRawChange,
+  sendRaw,
+  resetRaw,
+  disabled = false,
+  sendDisabled = false,
+  resetDisabled = false,
+}) {
   const [input, setInput] = React.useState(String(targetRaw));
   const holdRef = React.useRef(null);
   const targetRef = React.useRef(targetRaw);
@@ -305,12 +314,20 @@ function MotorRawControl({ row, targetRaw, onTargetRawChange, sendRaw, disabled 
         onLostPointerCapture={stopHold}
         title="+1 raw count"
       >→</button>
-      <button
-        type="button"
-        className="btn solid raw-send"
-        disabled={sendDisabled}
-        onClick={() => sendRaw(clampRawForRow(row, targetRef.current))}
-      >위치 송신</button>
+      <div className="raw-actions">
+        <button
+          type="button"
+          className="btn ghost raw-reset"
+          disabled={resetDisabled}
+          onClick={resetRaw}
+        >현재 위치로 되돌림</button>
+        <button
+          type="button"
+          className="btn solid raw-send"
+          disabled={sendDisabled}
+          onClick={() => sendRaw(clampRawForRow(row, targetRef.current))}
+        >위치 송신</button>
+      </div>
     </div>
   );
 }
@@ -414,6 +431,12 @@ function TabMotorSettings() {
     const nextRaw = clampRawForRow(selectedRow, raw);
     setPreviewRaw(raws => ({ ...raws, [selectedRow.joint_name]: nextRaw }));
     setPreviewDirty(dirtyMap => ({ ...dirtyMap, [selectedRow.joint_name]: true }));
+  };
+  const resetSelectedPreviewRaw = () => {
+    if (!selectedRow) return;
+    const nextRaw = clampRawForRow(selectedRow, selectedRaw);
+    setPreviewRaw(raws => ({ ...raws, [selectedJoint]: nextRaw }));
+    setPreviewDirty(dirtyMap => ({ ...dirtyMap, [selectedJoint]: false }));
   };
 
   const setAllTorque = async (enabled) => {
@@ -694,7 +717,9 @@ function TabMotorSettings() {
                 targetRaw={selectedPreviewRaw}
                 onTargetRawChange={updateSelectedPreviewRaw}
                 sendRaw={commandSelectedRaw}
+                resetRaw={resetSelectedPreviewRaw}
                 sendDisabled={sendDisabled}
+                resetDisabled={!selectedRow || !syncReady}
               />
             </div>
           </>

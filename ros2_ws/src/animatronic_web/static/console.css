@@ -876,8 +876,14 @@ select.ninput { cursor: pointer; appearance: none; background-image: url("data:i
   font-weight: 600;
   color: var(--cy);
 }
-.motor-raw-control .raw-send {
+.motor-raw-control .raw-actions {
   grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.motor-raw-control .raw-reset,
+.motor-raw-control .raw-send {
   width: 100%;
   justify-content: center;
 }
