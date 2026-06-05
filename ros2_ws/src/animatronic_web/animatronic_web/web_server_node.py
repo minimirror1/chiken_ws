@@ -2,6 +2,7 @@ import asyncio
 import json
 import math
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from animatronic_interfaces.msg import (
     MotorDiagnosticsArray,
 )
 from animatronic_interfaces.srv import SetMotorCalibration
+from animatronic_interfaces.srv import GetMotorPositions
 from animatronic_interfaces.srv import MotorCommand
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -75,10 +77,16 @@ class MotionRunRequest(BaseModel):
     pattern_yaml: str = ""
     preview_only: bool = False
     allow_interrupt: bool = True
+    start_time_ms: int = 0
 
 
 class JointPositions(BaseModel):
     positions: dict[str, float]  # joint_name -> degrees
+
+
+class MotionSyncRequest(BaseModel):
+    positions: dict[str, float]
+    duration_ms: int = 5000
 
 
 class RawPositionRequest(BaseModel):
@@ -218,8 +226,11 @@ class WebBridgeNode(Node):
         self.pattern_dir = Path(self.get_parameter("pattern_dir").value)
         self.service_timeout_sec = float(self.get_parameter("service_timeout_sec").value)
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._logs: deque[dict[str, Any]] = deque(maxlen=200)
+        self._last_joint_state: JointState | None = None
+        self._last_joint_state_monotonic_ns: int | None = None
+        self._sync_stop_event: threading.Event | None = None
         self._state: dict[str, Any] = {
             "joint_states": None,
             "motor_diagnostics": None,
@@ -237,6 +248,10 @@ class WebBridgeNode(Node):
         self.motor_command_client = self.create_client(
             MotorCommand,
             self.topic("motor/command"),
+        )
+        self.motor_positions_client = self.create_client(
+            GetMotorPositions,
+            self.topic("motor/read_positions"),
         )
         self.motor_calibration_client = self.create_client(
             SetMotorCalibration,
@@ -270,6 +285,7 @@ class WebBridgeNode(Node):
                         "motor_home": self.motor_home_client.service_is_ready(),
                         "motor_stop": self.motor_stop_client.service_is_ready(),
                         "motor_command": self.motor_command_client.service_is_ready(),
+                        "motor_read_positions": self.motor_positions_client.service_is_ready(),
                         "motor_calibration": self.motor_calibration_client.service_is_ready(),
                         "motion_stop": self.motion_stop_client.service_is_ready(),
                     },
@@ -351,6 +367,108 @@ class WebBridgeNode(Node):
         self.log_event("web", "motor_raw", f"Raw target: {joint_name}={raw_position}")
         return {"success": True, "joint_name": joint_name, "raw": int(raw_position)}
 
+    def _motion_is_running_locked(self) -> bool:
+        status = self._state.get("motion_status") or {}
+        return int(status.get("status", 0) or 0) == MotionStatus.RUNNING
+
+    def _publish_target_positions(self, positions: dict[str, float], source: str) -> None:
+        targets = JointTargets()
+        targets.stamp = self.get_clock().now().to_msg()
+        targets.source = source
+        for name, angle_deg in positions.items():
+            target = JointTarget()
+            target.name = name
+            target.angle_deg = float(angle_deg)
+            target.normalized_value = 0.0
+            target.raw_position = 0
+            targets.joints.append(target)
+        if targets.joints:
+            self.target_joints_pub.publish(targets)
+
+    async def sync_motion_pose(self, request: MotionSyncRequest) -> dict[str, Any]:
+        duration_ms = max(0, int(request.duration_ms))
+        with self._lock:
+            if self._sync_stop_event is not None:
+                return {"success": False, "message": "motion sync already running"}
+            if self._motion_is_running_locked():
+                return {"success": False, "message": "motion is running"}
+            stop_event = threading.Event()
+            self._sync_stop_event = stop_event
+
+        position_result = await self.call_motor_positions()
+        if not position_result["success"]:
+            with self._lock:
+                if self._sync_stop_event is stop_event:
+                    self._sync_stop_event = None
+            return position_result
+
+        start_positions = {
+            str(item["joint_name"]): float(item["joint_angle_deg"])
+            for item in position_result["joint_positions"]
+            if item.get("joint_name") not in VIRTUAL_JOINTS
+        }
+        target_positions = {
+            name: float(angle_deg)
+            for name, angle_deg in request.positions.items()
+            if name not in VIRTUAL_JOINTS and name in start_positions
+        }
+        if not target_positions:
+            with self._lock:
+                if self._sync_stop_event is stop_event:
+                    self._sync_stop_event = None
+            return {"success": False, "message": "no physical joints to sync"}
+
+        period_sec = 1.0 / 50.0
+        start_monotonic = time.monotonic()
+        steps = max(1, math.ceil(duration_ms / 1000.0 / period_sec))
+        try:
+            for tick in range(steps + 1):
+                if stop_event.is_set():
+                    return {"success": False, "message": "motion sync stopped"}
+                ratio = 1.0 if duration_ms == 0 else min(max((tick * period_sec * 1000.0) / duration_ms, 0.0), 1.0)
+                eased = ratio * ratio * ratio * (ratio * (ratio * 6.0 - 15.0) + 10.0)
+                positions = {
+                    name: start_positions[name] + (target - start_positions[name]) * eased
+                    for name, target in target_positions.items()
+                }
+                self._publish_target_positions(positions, "web:motor_joint_deg")
+                if ratio >= 1.0:
+                    break
+                next_time = start_monotonic + (tick + 1) * period_sec
+                await asyncio.sleep(max(0.0, next_time - time.monotonic()))
+        finally:
+            with self._lock:
+                if self._sync_stop_event is stop_event:
+                    self._sync_stop_event = None
+
+        self.log_event("web", "motion_sync", f"Synced {len(target_positions)} joints in {duration_ms}ms")
+        return {"success": True, "message": "motion sync completed"}
+
+    async def call_motor_positions(self) -> dict[str, Any]:
+        client = self.motor_positions_client
+        if not client.service_is_ready() and not client.wait_for_service(timeout_sec=0.1):
+            return {"success": False, "message": "motor/read_positions service is not available"}
+        future = client.call_async(GetMotorPositions.Request())
+        deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
+        while not future.done():
+            if asyncio.get_running_loop().time() > deadline:
+                return {"success": False, "message": "motor/read_positions service timed out"}
+            await asyncio.sleep(0.02)
+        result = future.result()
+        if not result.success:
+            return {"success": False, "message": result.message or "motor position read failed"}
+        diagnostics = [ros_message_to_dict(item) for item in result.diagnostics]
+        joint_positions = [ros_message_to_dict(item) for item in result.joint_positions]
+        if not diagnostics or not joint_positions:
+            return {"success": False, "message": "motor position read returned no positions"}
+        return {
+            "success": True,
+            "message": result.message,
+            "stamp": ros_message_to_dict(result.stamp),
+            "diagnostics": diagnostics,
+            "joint_positions": joint_positions,
+        }
+
     async def call_trigger(self, client: Any, name: str) -> dict[str, Any]:
         if not client.service_is_ready():
             return {"success": False, "message": f"{name} service is not available"}
@@ -364,6 +482,10 @@ class WebBridgeNode(Node):
         return {"success": bool(result.success), "message": result.message}
 
     async def run_motion_pattern(self, request: MotionRunRequest) -> dict[str, Any]:
+        with self._lock:
+            if self._sync_stop_event is not None:
+                return {"success": False, "message": "motion sync is running"}
+
         client = self.run_pattern_client
         if not client.server_is_ready() and not client.wait_for_server(timeout_sec=0.1):
             return {"success": False, "message": "run_pattern action is not available"}
@@ -373,6 +495,7 @@ class WebBridgeNode(Node):
         goal.pattern_yaml = request.pattern_yaml
         goal.preview_only = bool(request.preview_only)
         goal.allow_interrupt = bool(request.allow_interrupt)
+        goal.start_time_ms = max(0, int(request.start_time_ms or 0))
 
         feedback_state: dict[str, Any] = {"progress": 0.0, "current_keyframe": ""}
 
@@ -465,6 +588,9 @@ class WebBridgeNode(Node):
             self._state[key] = ros_message_to_dict(message)
 
     def _joint_state_cb(self, message: JointState) -> None:
+        with self._lock:
+            self._last_joint_state = message
+            self._last_joint_state_monotonic_ns = time.monotonic_ns()
         self._set_state("joint_states", message)
 
     def _motor_diagnostics_cb(self, message: MotorDiagnosticsArray) -> None:
@@ -516,6 +642,10 @@ def create_app(node: WebBridgeNode) -> FastAPI:
 
     @app.post("/api/stop", dependencies=[Depends(require_password)])
     async def stop() -> dict[str, Any]:
+        with node._lock:
+            sync_stop_event = node._sync_stop_event
+        if sync_stop_event is not None:
+            sync_stop_event.set()
         motor_result, motion_result = await asyncio.gather(
             node.call_trigger(node.motor_stop_client, "motor/stop"),
             node.call_trigger(node.motion_stop_client, "motion/stop"),
@@ -540,6 +670,10 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     @app.post("/api/motion/run", dependencies=[Depends(require_password)])
     async def run_motion(request: MotionRunRequest) -> dict[str, Any]:
         return await node.run_motion_pattern(request)
+
+    @app.post("/api/motion/sync", dependencies=[Depends(require_password)])
+    async def sync_motion(request: MotionSyncRequest) -> dict[str, Any]:
+        return await node.sync_motion_pose(request)
 
     @app.post("/api/motor/{joint_name}/raw", dependencies=[Depends(require_password)])
     async def set_motor_raw(joint_name: str, request: RawPositionRequest) -> dict[str, Any]:

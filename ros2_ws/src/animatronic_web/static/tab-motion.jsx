@@ -372,6 +372,7 @@ function TabMotion() {
   const [verifyRes, setVerifyRes] = React.useState(null);
   const [draggingKey, setDraggingKey] = React.useState(null);
   const [poseClipboard, setPoseClipboard] = React.useState(null);
+  const [syncedAt, setSyncedAt] = React.useState(null);
   const [timelineHover, setTimelineHover] = React.useState(false);
   const [visibleJoints, setVisibleJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, true])));
   const [pickJoints, setPickJoints] = React.useState(() => Object.fromEntries(JOINT_IDS.map(id => [id, false])));
@@ -428,6 +429,7 @@ function TabMotion() {
   }, [poseClipboard]);
 
   const updateTracks = (tracks, nextTime) => {
+    setSyncedAt(null);
     Store.updatePattern(p.id, { tracks });
     if (nextTime !== undefined) {
       setSelTime(nextTime);
@@ -437,6 +439,7 @@ function TabMotion() {
     }
   };
   const scrub = (nt) => {
+    setSyncedAt(null);
     setT(nt); setPlaying(false);
     Store.state.joints = previewPoseAt(p, nt); Store.emit();
   };
@@ -446,27 +449,68 @@ function TabMotion() {
   };
   const playPreview = () => {
     if (playing) { setPlaying(false); Store.set({ playing: false }); return; }
+    setSyncedAt(null);
     if (t >= dur) setT(0);
     Store.set({ playing: true, activePattern: p.id }); setPlaying(true);
     Store.pushLog('cmd', 'studio', `미리보기 재생: '${p.name}'`);
   };
-  const runReal = async () => {
+  const poseDegAt = (time_ms) => {
+    const values = previewPoseAt(p, time_ms);
+    const positions = {};
+    JOINT_IDS.forEach(id => { positions[id] = valToDeg(id, values[id] || 0); });
+    return positions;
+  };
+  const syncMotorAt = async (time_ms) => {
+    const syncTime = Math.max(0, Math.min(dur, Math.round(time_ms)));
+    Store.pushLog('cmd', 'studio', `모터 동기화 시작 @ ${syncTime}ms`);
+    const result = await Store.syncMotionToPose(poseDegAt(syncTime), 5000);
+    if (result.success) {
+      setSyncedAt({ patternId: p.id, time_ms: syncTime });
+      Store.pushLog('ok', 'studio', `동기화됨 @ ${syncTime}ms`);
+    } else {
+      setSyncedAt(null);
+      Store.pushLog('err', 'studio', result.message || '모터 동기화 실패');
+    }
+    return result;
+  };
+  const runReal = async (startTimeMs = 0) => {
+    const startMs = Math.max(0, Math.min(dur, Math.round(startTimeMs)));
     Store.set({ mode: 'test', activePattern: p.id });
-    Store.pushLog('cmd', 'studio', `실제 모터 실행: '${p.name}' (mode=TEST)`);
-    if (t >= dur) setT(0);
+    Store.pushLog('cmd', 'studio', `실제 모터 실행: '${p.name}' @ ${startMs}ms (mode=TEST)`);
+    setT(startMs);
+    Store.state.joints = previewPoseAt(p, startMs); Store.emit();
     Store.set({ playing: true }); setPlaying(true);
     try {
-      const result = await Store.runMotionPattern(p.name, patternToYaml(p), { allow_interrupt: true });
+      const result = await Store.runMotionPattern(p.name, patternToYaml(p), { start_time_ms: startMs, allow_interrupt: false });
       Store.pushLog(result.success ? 'ok' : 'err', 'studio', result.message || '실제 실행 완료');
     } catch (err) {
       Store.pushLog('err', 'studio', err.detail || err.message || '실제 실행 요청 실패');
     }
   };
+  const runFromStart = async () => {
+    setSyncedAt(null);
+    setT(0);
+    Store.state.joints = previewPoseAt(p, 0); Store.emit();
+    const syncResult = await syncMotorAt(0);
+    if (!syncResult.success) return;
+    await runReal(0);
+  };
   const confirmRunReal = () => {
     if (!window.confirm('모터가 움직입니다. 정말 실행하시겠습니까?')) return;
-    runReal();
+    runFromStart();
+  };
+  const syncCurrentMotor = () => {
+    syncMotorAt(t).catch(err => {
+      setSyncedAt(null);
+      Store.pushLog('err', 'studio', err.detail || err.message || '모터 동기화 요청 실패');
+    });
+  };
+  const runFromSynced = () => {
+    if (!syncedAt || syncedAt.patternId !== p.id || syncedAt.time_ms !== Math.round(t)) return;
+    runReal(syncedAt.time_ms);
   };
   const stop = () => {
+    setSyncedAt(null);
     setPlaying(false);
     Store.set({ playing: false, mode: 'stop' });
     if (Store.stopRosMotion) Store.stopRosMotion().catch(err => Store.pushLog('err', 'studio', err.detail || err.message || '정지 요청 실패'));
@@ -512,12 +556,14 @@ function TabMotion() {
     setPoseClipboard(null);
   };
   const updateGraphKey = (jid, id, time_ms, value) => {
+    setSyncedAt(null);
     if (playing) { setPlaying(false); Store.set({ playing: false }); }
     const tracks = cloneTracks(p.tracks);
     tracks[jid] = sortedTrack(tracks[jid]).map(k => k.id === id ? { ...k, time_ms, value } : k).sort((a, b) => a.time_ms - b.time_ms);
     updateTracks(tracks, time_ms);
   };
   const updateTangent = (jid, id, side, dx, dy) => {
+    setSyncedAt(null);
     const tracks = cloneTracks(p.tracks);
     tracks[jid] = sortedTrack(tracks[jid]).map(k => {
       if (k.id !== id) return k;
@@ -533,6 +579,7 @@ function TabMotion() {
   };
   const applyTangentPreset = (mode) => {
     if (!selSlot) return;
+    setSyncedAt(null);
     const axes = editAxes.length ? editAxes.filter(id => selSlot.keys[id]) : JOINT_IDS.filter(id => selSlot.keys[id]);
     if (!axes.length) return;
     const tracks = cloneTracks(p.tracks);
@@ -554,6 +601,7 @@ function TabMotion() {
     updateTracks(tracks, toTime);
   };
   const setSelJoint = (jid, v) => {
+    setSyncedAt(null);
     v = Math.max(-100, Math.min(100, v));
     if (!selSlot || !selSlot.keys[jid]) return;
     const tracks = cloneTracks(p.tracks);
@@ -605,10 +653,11 @@ function TabMotion() {
       tracks[jid] = [newAxisKey(0, 0), newAxisKey(1500, 0)];
     });
     Store.set({ patterns: [...s.patterns, { id, name: '새 패턴', desc: '', tracks }], editingPatternId: id });
-    setSelTime(0); setT(0); setPoseClipboard(null);
+    setSelTime(0); setT(0); setPoseClipboard(null); setSyncedAt(null);
   };
   const startAxisDrag = (e, jid, k) => {
     e.stopPropagation();
+    setSyncedAt(null);
     if (playing) { setPlaying(false); Store.set({ playing: false }); }
     if (poseClipboard) setPoseClipboard(null);
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -655,7 +704,7 @@ function TabMotion() {
           <Panel title="모션 제어" accent="CONTROL" bodyClass="col motion-control" style={{ gap: 10 }}>
             <div className="field">
               <label>패턴</label>
-              <select className="ninput" value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); const ns = buildSlots(np); setSelTime(ns[0]?.time_ms || 0); setT(0); setPoseClipboard(null); }}>
+              <select className="ninput" value={p.id} onChange={e => { Store.set({ editingPatternId: e.target.value }); const np = Store.getPattern(e.target.value); const ns = buildSlots(np); setSelTime(ns[0]?.time_ms || 0); setT(0); setPoseClipboard(null); setSyncedAt(null); }}>
                 {s.patterns.map(pp => <option key={pp.id} value={pp.id}>{pp.name}</option>)}
               </select>
             </div>
@@ -671,8 +720,8 @@ function TabMotion() {
           </Panel>
 
           <Panel title="패턴 속성" accent="META" bodyClass="col" style={{ gap: 10 }}>
-            <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => Store.updatePattern(p.id, { name: e.target.value })} /></div>
-            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력..." onChange={e => Store.updatePattern(p.id, { desc: e.target.value })} /></div>
+            <div className="field"><label>이름</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.name} onChange={e => { setSyncedAt(null); Store.updatePattern(p.id, { name: e.target.value }); }} /></div>
+            <div className="field"><label>설명</label><input className="ninput" style={{ fontFamily: 'var(--kr)' }} value={p.desc} placeholder="설명 입력..." onChange={e => { setSyncedAt(null); Store.updatePattern(p.id, { desc: e.target.value }); }} /></div>
             <button className="yaml-toggle" onClick={() => setShowYaml(v => !v)}>YAML 원문 {showYaml ? '접기' : '보기'}</button>
             {showYaml && <pre className="yaml motion-yaml">{patternToYaml(p)}</pre>}
           </Panel>
@@ -692,7 +741,10 @@ function TabMotion() {
           <Panel title="실행" accent="RUN" bodyClass="keyframe-run">
             <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
             <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
-            <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal}>실제 실행</Btn>
+            <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal}>처음부터 실행</Btn>
+            <Btn kind="ghost" size="sm" icon="check" onClick={syncCurrentMotor}>모터 동기화</Btn>
+            <Btn kind="solid" size="sm" icon="play" onClick={runFromSynced} disabled={!syncedAt || syncedAt.patternId !== p.id || syncedAt.time_ms !== Math.round(t)}>이 위치부터 재생</Btn>
+            <div className="sync-status">{syncedAt && syncedAt.patternId === p.id ? `동기화됨 @ ${syncedAt.time_ms}ms` : '동기화 필요'}</div>
           </Panel>
 
           <Panel title="키프레임 슬롯" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">

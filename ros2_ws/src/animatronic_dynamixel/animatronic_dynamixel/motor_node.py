@@ -11,9 +11,11 @@ from animatronic_interfaces.msg import (
     MotorCalibration,
     MotorDiagnostic,
     MotorDiagnosticsArray,
+    MotorJointPosition,
     MotorStatus,
 )
 from animatronic_interfaces.srv import MotorCommand, SetMotorCalibration
+from animatronic_interfaces.srv import GetMotorPositions
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -709,6 +711,11 @@ class MotorNode(Node):
         self.create_service(Trigger, f"{namespace}/motor/home", self._on_home)
         self.create_service(Trigger, f"{namespace}/motor/stop", self._on_stop)
         self.create_service(
+            GetMotorPositions,
+            f"{namespace}/motor/read_positions",
+            self._on_read_positions,
+        )
+        self.create_service(
             MotorCommand,
             f"{namespace}/motor/reboot",
             self._on_reboot,
@@ -857,6 +864,7 @@ class MotorNode(Node):
     def _on_target_joints(self, msg) -> None:
         targets = {}
         raw_mode = getattr(msg, "source", "") == "web:motor_raw"
+        joint_deg_mode = getattr(msg, "source", "") == "web:motor_joint_deg"
         for joint in msg.joints:
             config = self._config_by_joint.get(joint.name)
             if config is None:
@@ -864,6 +872,11 @@ class MotorNode(Node):
                 continue
             if raw_mode:
                 raw_position = int(joint.raw_position)
+            elif joint_deg_mode:
+                raw_position = angle_to_raw(
+                    config.home_angle_deg + float(joint.angle_deg),
+                    config,
+                )
             else:
                 raw_position = normalized_to_raw(joint.normalized_value, config)
             targets[joint.name] = clamp(raw_position, config.min_raw, config.max_raw)
@@ -911,6 +924,32 @@ class MotorNode(Node):
         except RuntimeError as exc:
             response.success = False
             response.message = str(exc)
+        return response
+
+    def _on_read_positions(
+        self,
+        request: GetMotorPositions.Request,
+        response: GetMotorPositions.Response,
+    ):
+        del request
+        try:
+            diagnostics = self._read_current_position_diagnostics()
+        except RuntimeError as exc:
+            response.success = False
+            response.message = str(exc)
+            return response
+
+        response.stamp = self.get_clock().now().to_msg()
+        response.diagnostics = diagnostics
+        response.joint_positions = self._joint_positions_from_diagnostics(diagnostics)
+        response.success = bool(diagnostics)
+        response.message = (
+            f"read {len(diagnostics)} motor positions"
+            if diagnostics
+            else "no motor positions read"
+        )
+        if diagnostics:
+            self._merge_position_diagnostics(diagnostics)
         return response
 
     def _on_reboot(
@@ -1139,6 +1178,70 @@ class MotorNode(Node):
             diagnostic.error_code = min(failure_counts.get(config.motor_id, 0), 255)
             next_diagnostics.append(diagnostic)
         self._last_diagnostics = next_diagnostics
+
+    def _read_current_position_diagnostics(self) -> list[MotorDiagnostic]:
+        values = self._backend.read_diagnostic_field("position")
+        if values is None:
+            diagnostics = self._backend.read_diagnostics()
+            return [diagnostic for diagnostic in diagnostics if diagnostic.joint_name]
+
+        failure_counts = self._backend.failure_counts()
+        torque_by_id = self._backend.torque_enabled_by_id()
+        diagnostics: list[MotorDiagnostic] = []
+        for config in self._motor_configs:
+            if config.motor_id not in values:
+                continue
+            diagnostic = MotorDiagnostic()
+            diagnostic.id = config.motor_id
+            diagnostic.joint_name = config.joint_name
+            diagnostic.model = config.model
+            diagnostic.raw_position = int(values[config.motor_id])
+            diagnostic.angle_deg = raw_to_angle_deg(diagnostic.raw_position, config)
+            diagnostic.torque_enabled = torque_by_id.get(config.motor_id, False)
+            diagnostic.error_code = min(failure_counts.get(config.motor_id, 0), 255)
+            diagnostics.append(diagnostic)
+        return diagnostics
+
+    def _joint_positions_from_diagnostics(
+        self,
+        diagnostics: list[MotorDiagnostic],
+    ) -> list[MotorJointPosition]:
+        configs_by_joint = {config.joint_name: config for config in self._motor_configs}
+        positions: list[MotorJointPosition] = []
+        for diagnostic in diagnostics:
+            config = configs_by_joint.get(diagnostic.joint_name)
+            if config is None:
+                continue
+            position = MotorJointPosition()
+            position.joint_name = diagnostic.joint_name
+            position.raw_position = int(diagnostic.raw_position)
+            position.joint_angle_deg = raw_to_joint_deg(
+                diagnostic.raw_position,
+                config,
+            )
+            positions.append(position)
+        return positions
+
+    def _merge_position_diagnostics(self, diagnostics: list[MotorDiagnostic]) -> None:
+        fresh_by_joint = {diagnostic.joint_name: diagnostic for diagnostic in diagnostics}
+        previous_by_joint = {
+            diagnostic.joint_name: diagnostic for diagnostic in self._last_diagnostics
+        }
+        merged: list[MotorDiagnostic] = []
+        for config in self._motor_configs:
+            fresh = fresh_by_joint.get(config.joint_name)
+            previous = previous_by_joint.get(config.joint_name)
+            if fresh is None:
+                if previous is not None:
+                    merged.append(previous)
+                continue
+            if previous is not None:
+                fresh.voltage_v = previous.voltage_v
+                fresh.temperature_c = previous.temperature_c
+                fresh.load = previous.load
+                fresh.error_message = previous.error_message
+            merged.append(fresh)
+        self._last_diagnostics = merged
 
     def _publish_joint_states(self) -> None:
         diagnostics_by_joint = {

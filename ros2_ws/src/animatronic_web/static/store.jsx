@@ -444,7 +444,15 @@ window.RosBridge = (function() {
         pattern_yaml: patternYaml || '',
         preview_only: !!options.preview_only,
         allow_interrupt: options.allow_interrupt !== false,
+        start_time_ms: Math.max(0, Math.round(options.start_time_ms || 0)),
       }),
+    });
+  };
+
+  Store.syncMotionToPose = function(positions, duration_ms = 5000) {
+    return bridge.api('/api/motion/sync', {
+      method: 'POST',
+      body: JSON.stringify({ positions, duration_ms }),
     });
   };
 

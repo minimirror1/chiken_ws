@@ -325,6 +325,8 @@ class MotionNode(Node):
             goal_handle.abort()
             return _run_pattern_result(False, str(exc))
 
+        start_time_ms = min(max(int(getattr(goal, "start_time_ms", 0)), 0), pattern.duration_ms)
+
         stop_event = threading.Event()
         with self._state_lock:
             if self._active_stop_event is not None:
@@ -333,7 +335,7 @@ class MotionNode(Node):
                 busy = False
                 self._active_stop_event = stop_event
                 self._current_pattern = pattern.name
-                self._progress = 0.0
+                self._progress = start_time_ms / max(pattern.duration_ms, 1)
                 self._status = MotionStatus.RUNNING
                 self._message = "running"
                 self._lock_for_ms(self._pattern_lock_ms)
@@ -350,7 +352,8 @@ class MotionNode(Node):
         while rclpy.ok() and not stop_event.is_set():
             now_ns = time.monotonic_ns()
             elapsed_ms = int((now_ns - start_ns) / 1_000_000)
-            values, progress, keyframe = interpolator(pattern, elapsed_ms)
+            sample_ms = min(start_time_ms + elapsed_ms, pattern.duration_ms)
+            values, progress, keyframe = interpolator(pattern, sample_ms)
             self._publish_joint_targets(values, f"motion_node:{pattern_source}")
             self._publish_feedback(goal_handle, progress, keyframe)
             with self._state_lock:
@@ -361,7 +364,7 @@ class MotionNode(Node):
                 goal_handle.canceled()
                 self._finish_pattern("", stop_event)
                 return _run_pattern_result(False, "pattern canceled")
-            if elapsed_ms >= pattern.duration_ms:
+            if sample_ms >= pattern.duration_ms:
                 break
             tick += 1
             next_ns = start_ns + tick * period_ns

@@ -65,6 +65,41 @@ class MotorSchedulerTest(unittest.TestCase):
         MotorNode._write_latest_targets(node)
         self.assertEqual(len(node._backend.writes), 1)
 
+    def test_motor_joint_deg_source_targets_home_relative_angle(self):
+        config = MotorConfig(
+            joint_name="upper_pitch",
+            motor_id=3,
+            model="XM430-W350-R",
+            min_raw=2046,
+            home_raw=3000,
+            max_raw=4095,
+            min_angle_deg=179.9,
+            home_angle_deg=263.7,
+            max_angle_deg=360.0,
+            profile=PROFILES["XM430-W350-R"],
+        )
+        node = MotorNode.__new__(MotorNode)
+        node._config_by_joint = {"upper_pitch": config}
+        node._backend = RecordingBackend()
+        node._target_lock = threading.Lock()
+        node._latest_targets = {}
+        node._target_dirty = False
+        node._stopped = True
+        node.get_logger = lambda: Logger()
+
+        msg = JointTargets()
+        msg.source = "web:motor_joint_deg"
+        target = JointTarget()
+        target.name = "upper_pitch"
+        target.angle_deg = -83.8
+        target.normalized_value = 100.0
+        msg.joints.append(target)
+
+        MotorNode._on_target_joints(node, msg)
+        MotorNode._write_latest_targets(node)
+
+        self.assertEqual(node._backend.writes, [{"upper_pitch": 2046}])
+
 
 if __name__ == "__main__":
     unittest.main()

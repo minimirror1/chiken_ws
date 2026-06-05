@@ -20,11 +20,13 @@ set(msg_files
   "msg/MotorCalibration.msg"
   "msg/MotorDiagnostic.msg"
   "msg/MotorDiagnosticsArray.msg"
+  "msg/MotorJointPosition.msg"
   "msg/MotorStatus.msg"
   "msg/SensorStatus.msg"
 )
 
 set(srv_files
+  "srv/GetMotorPositions.srv"
   "srv/MotorCommand.srv"
   "srv/SetMotorCalibration.srv"
   "srv/SetMode.srv"

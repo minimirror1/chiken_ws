@@ -1,0 +1,3 @@
+string joint_name
+int32 raw_position
+float32 joint_angle_deg
