@@ -405,12 +405,12 @@ class WebBridgeNode(Node):
         start_positions = {
             str(item["joint_name"]): float(item["joint_angle_deg"])
             for item in position_result["joint_positions"]
-            if item.get("joint_name") not in VIRTUAL_JOINTS
+            if item.get("joint_name")
         }
         target_positions = {
             name: float(angle_deg)
             for name, angle_deg in request.positions.items()
-            if name not in VIRTUAL_JOINTS and name in start_positions
+            if name in start_positions
         }
         if not target_positions:
             with self._lock:

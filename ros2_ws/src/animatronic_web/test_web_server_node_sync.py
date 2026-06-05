@@ -72,8 +72,9 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertGreaterEqual(len(published), 2)
-        self.assertNotIn("lower_yaw", published[0][0])
+        self.assertAlmostEqual(published[0][0]["lower_yaw"], 40.0)
         self.assertAlmostEqual(published[0][0]["lower_pitch"], 5.0)
+        self.assertAlmostEqual(published[-1][0]["lower_yaw"], 90.0)
         self.assertAlmostEqual(published[-1][0]["lower_pitch"], 25.0)
         self.assertEqual(published[-1][1], "web:motor_joint_deg")
 
