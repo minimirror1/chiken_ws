@@ -115,6 +115,7 @@ const Store = {
     targetSyncedFromActual: false,
     userCommandedPose: false,
     ros: { connected: true, node: 'chicken_controller', services: true, actions: true, hz: 50, latency: 6 },
+    operationStatus: { active: false, kind: 'idle', phase: 'idle', label: '', progress: 0, remaining_ms: 0, message: '', current_keyframe: '' },
     logs: SEED_LOGS.map((l, i) => ({ ...l, id: 'l' + i, t: nowHMS(new Date(Date.now() - (SEED_LOGS.length - i) * 3400)) })),
     patterns: SEED_PATTERNS,
     editingPatternId: 'curious_peck',
@@ -368,6 +369,29 @@ window.RosBridge = (function() {
       if (data.motion_status) {
         if (data.motion_status.pattern_id) patch.activePattern = data.motion_status.pattern_id;
         if (data.motion_status.playing !== undefined) patch.playing = !!data.motion_status.playing;
+        if (data.motion_status.progress !== undefined && !data.operation_status) {
+          patch.operationStatus = {
+            ...Store.state.operationStatus,
+            active: !!data.motion_status.playing,
+            kind: 'run',
+            phase: data.motion_status.playing ? 'running_pattern' : Store.state.operationStatus.phase,
+            label: data.motion_status.playing ? '패턴 실행 중' : Store.state.operationStatus.label,
+            progress: Math.max(0, Math.min(1, Number(data.motion_status.progress) || 0)),
+          };
+        }
+      }
+
+      if (data.operation_status) {
+        patch.operationStatus = {
+          active: !!data.operation_status.active,
+          kind: data.operation_status.kind || 'idle',
+          phase: data.operation_status.phase || 'idle',
+          label: data.operation_status.label || '',
+          progress: Math.max(0, Math.min(1, Number(data.operation_status.progress) || 0)),
+          remaining_ms: Math.max(0, Math.round(Number(data.operation_status.remaining_ms) || 0)),
+          message: data.operation_status.message || '',
+          current_keyframe: data.operation_status.current_keyframe || '',
+        };
       }
 
       // Nearest person / sensor

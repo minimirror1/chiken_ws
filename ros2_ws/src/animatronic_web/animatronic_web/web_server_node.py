@@ -57,6 +57,21 @@ JOINT_NORMALIZATION_DEG = {
     "upper_pitch": 48.0,
 }
 VIRTUAL_JOINTS = {"lower_yaw"}
+TERMINAL_OPERATION_PHASES = {"done", "error", "stopped"}
+TERMINAL_OPERATION_VISIBLE_SEC = 2.0
+
+
+def idle_operation_status() -> dict[str, Any]:
+    return {
+        "active": False,
+        "kind": "idle",
+        "phase": "idle",
+        "label": "",
+        "progress": 0.0,
+        "remaining_ms": 0,
+        "message": "",
+        "current_keyframe": "",
+    }
 
 
 class ModeRequest(BaseModel):
@@ -231,6 +246,7 @@ class WebBridgeNode(Node):
         self._last_joint_state: JointState | None = None
         self._last_joint_state_monotonic_ns: int | None = None
         self._sync_stop_event: threading.Event | None = None
+        self._operation_status = idle_operation_status()
         self._state: dict[str, Any] = {
             "joint_states": None,
             "motor_diagnostics": None,
@@ -276,9 +292,11 @@ class WebBridgeNode(Node):
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            operation_status = self._operation_status_for_snapshot_locked()
             return {
                 **self._state,
                 "events": list(self._logs),
+                "operation_status": operation_status,
                 "ros": {
                     "namespace": self.namespace,
                     "services": {
@@ -293,6 +311,43 @@ class WebBridgeNode(Node):
                         "run_pattern": self.run_pattern_client.server_is_ready(),
                     },
                 },
+            }
+
+    def _operation_status_for_snapshot_locked(self) -> dict[str, Any]:
+        status = dict(getattr(self, "_operation_status", idle_operation_status()))
+        updated_at = float(status.pop("_updated_at", 0.0) or 0.0)
+        if (
+            status.get("phase") in TERMINAL_OPERATION_PHASES
+            and updated_at
+            and time.monotonic() - updated_at > TERMINAL_OPERATION_VISIBLE_SEC
+        ):
+            self._operation_status = idle_operation_status()
+            return dict(self._operation_status)
+        return status
+
+    def _set_operation_status(
+        self,
+        *,
+        kind: str,
+        phase: str,
+        label: str,
+        active: bool | None = None,
+        progress: float = 0.0,
+        remaining_ms: int = 0,
+        message: str = "",
+        current_keyframe: str = "",
+    ) -> None:
+        with self._lock:
+            self._operation_status = {
+                "active": phase not in {"done", "error", "stopped", "idle"} if active is None else bool(active),
+                "kind": kind,
+                "phase": phase,
+                "label": label,
+                "progress": clamp(float(progress), 0.0, 1.0),
+                "remaining_ms": max(0, int(remaining_ms)),
+                "message": message,
+                "current_keyframe": current_keyframe,
+                "_updated_at": time.monotonic(),
             }
 
     def log_event(self, source: str, event_type: str, message: str, detail: str = "") -> None:
@@ -394,12 +449,25 @@ class WebBridgeNode(Node):
                 return {"success": False, "message": "motion is running"}
             stop_event = threading.Event()
             self._sync_stop_event = stop_event
+        self._set_operation_status(
+            kind="sync",
+            phase="reading_positions",
+            label="현위치 읽는 중",
+            progress=0.0,
+        )
 
         position_result = await self.call_motor_positions()
         if not position_result["success"]:
             with self._lock:
                 if self._sync_stop_event is stop_event:
                     self._sync_stop_event = None
+            self._set_operation_status(
+                kind="sync",
+                phase="error",
+                label="동기화 실패",
+                progress=0.0,
+                message=position_result.get("message", ""),
+            )
             return position_result
 
         start_positions = {
@@ -416,6 +484,13 @@ class WebBridgeNode(Node):
             with self._lock:
                 if self._sync_stop_event is stop_event:
                     self._sync_stop_event = None
+            self._set_operation_status(
+                kind="sync",
+                phase="error",
+                label="동기화 실패",
+                progress=0.0,
+                message="no physical joints to sync",
+            )
             return {"success": False, "message": "no physical joints to sync"}
 
         period_sec = 1.0 / 50.0
@@ -424,8 +499,22 @@ class WebBridgeNode(Node):
         try:
             for tick in range(steps + 1):
                 if stop_event.is_set():
+                    self._set_operation_status(
+                        kind="sync",
+                        phase="stopped",
+                        label="정지됨",
+                        progress=0.0,
+                        message="motion sync stopped",
+                    )
                     return {"success": False, "message": "motion sync stopped"}
                 ratio = 1.0 if duration_ms == 0 else min(max((tick * period_sec * 1000.0) / duration_ms, 0.0), 1.0)
+                self._set_operation_status(
+                    kind="sync",
+                    phase="syncing",
+                    label="모터 동기화 중",
+                    progress=ratio,
+                    remaining_ms=max(0, int(round(duration_ms * (1.0 - ratio)))),
+                )
                 eased = ratio * ratio * ratio * (ratio * (ratio * 6.0 - 15.0) + 10.0)
                 positions = {
                     name: start_positions[name] + (target - start_positions[name]) * eased
@@ -442,6 +531,13 @@ class WebBridgeNode(Node):
                     self._sync_stop_event = None
 
         self.log_event("web", "motion_sync", f"Synced {len(target_positions)} joints in {duration_ms}ms")
+        self._set_operation_status(
+            kind="sync",
+            phase="done",
+            label="동기화 완료",
+            progress=1.0,
+            message="motion sync completed",
+        )
         return {"success": True, "message": "motion sync completed"}
 
     async def call_motor_positions(self) -> dict[str, Any]:
@@ -496,6 +592,12 @@ class WebBridgeNode(Node):
         goal.preview_only = bool(request.preview_only)
         goal.allow_interrupt = bool(request.allow_interrupt)
         goal.start_time_ms = max(0, int(request.start_time_ms or 0))
+        self._set_operation_status(
+            kind="run",
+            phase="running_pattern",
+            label="패턴 실행 중",
+            progress=0.0,
+        )
 
         feedback_state: dict[str, Any] = {"progress": 0.0, "current_keyframe": ""}
 
@@ -503,16 +605,35 @@ class WebBridgeNode(Node):
             feedback = feedback_msg.feedback
             feedback_state["progress"] = float(feedback.progress)
             feedback_state["current_keyframe"] = feedback.current_keyframe
+            self._set_operation_status(
+                kind="run",
+                phase="running_pattern",
+                label="패턴 실행 중",
+                progress=float(feedback.progress),
+                current_keyframe=feedback.current_keyframe,
+            )
 
         send_future = client.send_goal_async(goal, feedback_callback=feedback_callback)
         send_deadline = asyncio.get_running_loop().time() + self.service_timeout_sec
         while not send_future.done():
             if asyncio.get_running_loop().time() > send_deadline:
+                self._set_operation_status(
+                    kind="run",
+                    phase="error",
+                    label="실행 실패",
+                    message="run_pattern goal send timed out",
+                )
                 return {"success": False, "message": "run_pattern goal send timed out"}
             await asyncio.sleep(0.02)
 
         goal_handle = send_future.result()
         if not goal_handle.accepted:
+            self._set_operation_status(
+                kind="run",
+                phase="error",
+                label="실행 실패",
+                message="run_pattern goal was rejected",
+            )
             return {"success": False, "message": "run_pattern goal was rejected"}
 
         result_future = goal_handle.get_result_async()
@@ -521,8 +642,17 @@ class WebBridgeNode(Node):
 
         wrapped = result_future.result()
         result = wrapped.result
+        success = bool(result.success) and wrapped.status == GoalStatus.STATUS_SUCCEEDED
+        self._set_operation_status(
+            kind="run",
+            phase="done" if success else "error",
+            label="실행 완료" if success else "실행 실패",
+            progress=1.0 if success else feedback_state["progress"],
+            message=result.message,
+            current_keyframe=feedback_state["current_keyframe"],
+        )
         return {
-            "success": bool(result.success) and wrapped.status == GoalStatus.STATUS_SUCCEEDED,
+            "success": success,
             "message": result.message,
             "status": int(wrapped.status),
             "feedback": feedback_state,
@@ -644,8 +774,16 @@ def create_app(node: WebBridgeNode) -> FastAPI:
     async def stop() -> dict[str, Any]:
         with node._lock:
             sync_stop_event = node._sync_stop_event
+            active_operation = getattr(node, "_operation_status", {}).get("active")
         if sync_stop_event is not None:
             sync_stop_event.set()
+        if active_operation:
+            node._set_operation_status(
+                kind="stop",
+                phase="stopped",
+                label="정지됨",
+                message="stop requested",
+            )
         motor_result, motion_result = await asyncio.gather(
             node.call_trigger(node.motor_stop_client, "motor/stop"),
             node.call_trigger(node.motion_stop_client, "motion/stop"),

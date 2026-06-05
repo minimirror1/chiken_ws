@@ -14,6 +14,11 @@ function fmtTimelineTime(ms) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}:${String(millis).padStart(3, '0')}`;
 }
 
+function fmtRemaining(ms) {
+  const safe = Math.max(0, Math.round(ms || 0));
+  return `${(safe / 1000).toFixed(1)}초 남음`;
+}
+
 function newAxisKey(time_ms, value, tangentMode = 'auto') {
   return { id: 'ak' + Math.random().toString(36).slice(2, 8), time_ms: Math.round(time_ms), value, tangent: defaultTangent(tangentMode) };
 }
@@ -387,6 +392,23 @@ function TabMotion() {
   const selectedPose = poseAtTime(p, selSlot ? selSlot.time_ms : t);
   const editAxes = JOINT_IDS.filter(id => pickJoints[id]);
   const targetAxes = editAxes.length ? editAxes : JOINT_IDS;
+  const op = s.operationStatus || {};
+  const opActive = !!op.active;
+  const opProgress = Math.max(0, Math.min(1, Number(op.progress) || 0));
+  const opIsRun = opActive && op.kind === 'run';
+  const opRemainingMs = op.phase === 'running_pattern'
+    ? Math.max(0, Math.round(dur * (1 - opProgress)))
+    : Math.max(0, Math.round(Number(op.remaining_ms) || 0));
+  const opPercent = Math.round(opProgress * 100);
+  const opParts = [];
+  if (op.label) opParts.push(op.label);
+  if (op.phase === 'running_pattern') opParts.push(`${opPercent}%`);
+  if (opRemainingMs > 0 && op.phase !== 'reading_positions') opParts.push(fmtRemaining(opRemainingMs));
+  const operationText = op.phase && op.phase !== 'idle' && opParts.length
+    ? opParts.join(' · ')
+    : (syncedAt && syncedAt.patternId === p.id ? `동기화됨 @ ${syncedAt.time_ms}ms` : '동기화 필요');
+  const showOperationBar = op.phase && op.phase !== 'idle';
+  const runFromSyncedDisabled = opActive || !syncedAt || syncedAt.patternId !== p.id || syncedAt.time_ms !== Math.round(t);
   const previewPoseAt = (pattern, time_ms, base = Store.state.joints) => {
     const pose = poseAtTime(pattern, time_ms);
     const out = { ...(base || {}) };
@@ -739,12 +761,17 @@ function TabMotion() {
 
         <div className="col" style={{ minHeight: 0 }}>
           <Panel title="실행" accent="RUN" bodyClass="keyframe-run">
-            <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview}>{playing ? '일시정지' : '미리보기'}</Btn>
+            <Btn kind="cy" size="sm" icon={playing ? 'pause' : 'play'} onClick={playPreview} disabled={opIsRun}>{playing ? '일시정지' : '미리보기'}</Btn>
             <Btn kind="danger" size="sm" icon="stop" onClick={stop}>정지</Btn>
-            <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal}>처음부터 실행</Btn>
-            <Btn kind="ghost" size="sm" icon="check" onClick={syncCurrentMotor}>모터 동기화</Btn>
-            <Btn kind="solid" size="sm" icon="play" onClick={runFromSynced} disabled={!syncedAt || syncedAt.patternId !== p.id || syncedAt.time_ms !== Math.round(t)}>이 위치부터 재생</Btn>
-            <div className="sync-status">{syncedAt && syncedAt.patternId === p.id ? `동기화됨 @ ${syncedAt.time_ms}ms` : '동기화 필요'}</div>
+            <Btn kind="solid" size="sm" icon="bolt" onClick={confirmRunReal} disabled={opActive}>처음부터 실행</Btn>
+            <Btn kind="ghost" size="sm" icon="check" onClick={syncCurrentMotor} disabled={opActive}>모터 동기화</Btn>
+            <Btn kind="solid" size="sm" icon="play" onClick={runFromSynced} disabled={runFromSyncedDisabled}>이 위치부터 재생</Btn>
+            <div className="sync-status">{operationText}</div>
+            {showOperationBar && (
+              <div className="operation-progress" aria-hidden="true">
+                <div style={{ width: `${opPercent}%` }} />
+              </div>
+            )}
           </Panel>
 
           <Panel title="키프레임 슬롯" accent="KEYFRAMES" className="flex1" bodyClass="pad-0">
