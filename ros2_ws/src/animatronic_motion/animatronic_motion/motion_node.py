@@ -295,7 +295,9 @@ class MotionNode(Node):
         with self._state_lock:
             busy = self._active_stop_event is not None
             locked = self._is_locked()
-        if (busy or locked) and not goal_request.allow_interrupt:
+        if busy:
+            return GoalResponse.REJECT
+        if locked and not goal_request.allow_interrupt:
             return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
@@ -326,13 +328,19 @@ class MotionNode(Node):
         stop_event = threading.Event()
         with self._state_lock:
             if self._active_stop_event is not None:
-                self._active_stop_event.set()
-            self._active_stop_event = stop_event
-            self._current_pattern = pattern.name
-            self._progress = 0.0
-            self._status = MotionStatus.RUNNING
-            self._message = "running"
-            self._lock_for_ms(self._pattern_lock_ms)
+                busy = True
+            else:
+                busy = False
+                self._active_stop_event = stop_event
+                self._current_pattern = pattern.name
+                self._progress = 0.0
+                self._status = MotionStatus.RUNNING
+                self._message = "running"
+                self._lock_for_ms(self._pattern_lock_ms)
+
+        if busy:
+            goal_handle.abort()
+            return _run_pattern_result(False, "motion already running")
 
         self._publish_event(EventLog.INFO, "pattern_started", pattern.name)
         start_ns = time.monotonic_ns()
@@ -351,7 +359,7 @@ class MotionNode(Node):
             if goal_handle.is_cancel_requested:
                 stop_event.set()
                 goal_handle.canceled()
-                self._finish_pattern("")
+                self._finish_pattern("", stop_event)
                 return _run_pattern_result(False, "pattern canceled")
             if elapsed_ms >= pattern.duration_ms:
                 break
@@ -363,14 +371,15 @@ class MotionNode(Node):
 
         if stop_event.is_set():
             goal_handle.abort()
-            self._finish_pattern("")
+            self._finish_pattern("", stop_event)
             return _run_pattern_result(False, "pattern stopped")
 
         with self._state_lock:
-            self._progress = 1.0
-            self._status = MotionStatus.IDLE
-            self._message = "idle"
-            self._active_stop_event = None
+            if self._active_stop_event is stop_event:
+                self._progress = 1.0
+                self._status = MotionStatus.IDLE
+                self._message = "idle"
+                self._active_stop_event = None
         self._publish_event(EventLog.INFO, "pattern_completed", pattern.name)
         goal_handle.succeed()
         return _run_pattern_result(True, "pattern completed")
@@ -397,8 +406,14 @@ class MotionNode(Node):
         feedback.current_keyframe = keyframe
         goal_handle.publish_feedback(feedback)
 
-    def _finish_pattern(self, message: str) -> None:
+    def _finish_pattern(
+        self,
+        message: str,
+        stop_event: threading.Event | None = None,
+    ) -> None:
         with self._state_lock:
+            if stop_event is not None and self._active_stop_event is not stop_event:
+                return
             self._current_pattern = ""
             self._progress = 0.0
             self._active_stop_event = None
