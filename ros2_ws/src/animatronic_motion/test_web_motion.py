@@ -71,6 +71,26 @@ tracks:
         self.assertAlmostEqual(pose_at_time(pattern, 999)["lower_yaw"], 0.0)
         self.assertAlmostEqual(pose_at_time(pattern, 1000)["lower_yaw"], 100.0)
 
+    def test_null_tangent_uses_default_auto_handles(self):
+        pattern = parse_web_motion_yaml("""
+name: null_tangent
+tracks:
+  lower_yaw:
+    - time_ms: 0
+      value: 0
+      tangent: null
+    - time_ms: 1000
+      value: 100
+      tangent: null
+  lower_pitch: []
+  upper_yaw: []
+  upper_pitch: []
+""")
+        keys = pattern.tracks["lower_yaw"]
+        self.assertEqual(keys[0].tangent_in.mode, "auto")
+        self.assertEqual(keys[0].tangent_out.mode, "auto")
+        self.assertAlmostEqual(pose_at_time(pattern, 500)["lower_yaw"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -50,8 +50,8 @@ def parse_web_motion_yaml(pattern_yaml: str, fallback_name: str = "inline") -> W
             TrackKey(
                 time_ms=int(item["time_ms"]),
                 value=float(item["value"]),
-                tangent_in=_parse_handle(item.get("tangent", {}).get("in", {})),
-                tangent_out=_parse_handle(item.get("tangent", {}).get("out", {})),
+                tangent_in=_parse_handle((item.get("tangent") or {}).get("in", {})),
+                tangent_out=_parse_handle((item.get("tangent") or {}).get("out", {})),
             )
             for item in track
         ]
