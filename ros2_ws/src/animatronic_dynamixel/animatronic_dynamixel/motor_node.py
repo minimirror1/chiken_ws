@@ -619,6 +619,17 @@ def normalized_to_raw(normalized_value: float, config: MotorConfig) -> int:
     return int(round(config.home_raw + (normalized / 100.0) * span))
 
 
+def raw_to_normalized(raw_position: int, config: MotorConfig) -> float:
+    raw = clamp(int(raw_position), config.min_raw, config.max_raw)
+    if (raw - config.home_raw) * (config.max_raw - config.home_raw) >= 0:
+        span = config.max_raw - config.home_raw
+    else:
+        span = config.home_raw - config.min_raw
+    if span == 0:
+        return 0.0
+    return max(-100.0, min(100.0, ((raw - config.home_raw) / span) * 100.0))
+
+
 def raw_to_angle_deg(raw_position: int, config: MotorConfig) -> float:
     max_span = config.max_raw - config.home_raw
     min_span = config.min_raw - config.home_raw
@@ -1216,6 +1227,10 @@ class MotorNode(Node):
             position.joint_name = diagnostic.joint_name
             position.raw_position = int(diagnostic.raw_position)
             position.joint_angle_deg = raw_to_joint_deg(
+                diagnostic.raw_position,
+                config,
+            )
+            position.normalized_value = raw_to_normalized(
                 diagnostic.raw_position,
                 config,
             )

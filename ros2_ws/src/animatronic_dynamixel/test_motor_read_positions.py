@@ -77,6 +77,7 @@ class MotorReadPositionsTest(unittest.TestCase):
         self.assertEqual(positions[0].joint_name, "upper_pitch")
         self.assertEqual(positions[0].raw_position, 2046)
         self.assertAlmostEqual(positions[0].joint_angle_deg, -83.8, places=2)
+        self.assertAlmostEqual(positions[0].normalized_value, -100.0)
 
 
 if __name__ == "__main__":

@@ -100,7 +100,7 @@ class JointPositions(BaseModel):
 
 
 class MotionSyncRequest(BaseModel):
-    positions: dict[str, float]
+    normalized_positions: dict[str, float]
     duration_ms: int = 5000
 
 
@@ -426,7 +426,7 @@ class WebBridgeNode(Node):
         status = self._state.get("motion_status") or {}
         return int(status.get("status", 0) or 0) == MotionStatus.RUNNING
 
-    def _publish_target_positions(self, positions: dict[str, float], source: str) -> None:
+    def _publish_joint_deg_targets(self, positions: dict[str, float], source: str) -> None:
         targets = JointTargets()
         targets.stamp = self.get_clock().now().to_msg()
         targets.source = source
@@ -435,6 +435,20 @@ class WebBridgeNode(Node):
             target.name = name
             target.angle_deg = float(angle_deg)
             target.normalized_value = 0.0
+            target.raw_position = 0
+            targets.joints.append(target)
+        if targets.joints:
+            self.target_joints_pub.publish(targets)
+
+    def _publish_normalized_targets(self, positions: dict[str, float], source: str) -> None:
+        targets = JointTargets()
+        targets.stamp = self.get_clock().now().to_msg()
+        targets.source = source
+        for name, normalized_value in positions.items():
+            target = JointTarget()
+            target.name = name
+            target.angle_deg = 0.0
+            target.normalized_value = clamp(float(normalized_value), -100.0, 100.0)
             target.raw_position = 0
             targets.joints.append(target)
         if targets.joints:
@@ -471,13 +485,13 @@ class WebBridgeNode(Node):
             return position_result
 
         start_positions = {
-            str(item["joint_name"]): float(item["joint_angle_deg"])
+            str(item["joint_name"]): float(item["normalized_value"])
             for item in position_result["joint_positions"]
-            if item.get("joint_name")
+            if item.get("joint_name") and item.get("normalized_value") is not None
         }
         target_positions = {
-            name: float(angle_deg)
-            for name, angle_deg in request.positions.items()
+            name: clamp(float(normalized_value), -100.0, 100.0)
+            for name, normalized_value in request.normalized_positions.items()
             if name in start_positions
         }
         if not target_positions:
@@ -520,7 +534,7 @@ class WebBridgeNode(Node):
                     name: start_positions[name] + (target - start_positions[name]) * eased
                     for name, target in target_positions.items()
                 }
-                self._publish_target_positions(positions, "web:motor_joint_deg")
+                self._publish_normalized_targets(positions, "web:motion_sync")
                 if ratio >= 1.0:
                     break
                 next_time = start_monotonic + (tick + 1) * period_sec

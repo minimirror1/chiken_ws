@@ -473,10 +473,10 @@ window.RosBridge = (function() {
     });
   };
 
-  Store.syncMotionToPose = function(positions, duration_ms = 5000) {
+  Store.syncMotionToNormalizedPose = function(normalizedPositions, duration_ms = 5000) {
     return bridge.api('/api/motion/sync', {
       method: 'POST',
-      body: JSON.stringify({ positions, duration_ms }),
+      body: JSON.stringify({ normalized_positions: normalizedPositions, duration_ms }),
     });
   };
 

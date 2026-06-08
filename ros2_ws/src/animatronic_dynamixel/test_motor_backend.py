@@ -9,6 +9,7 @@ from animatronic_dynamixel.motor_node import (
     normalized_to_raw,
     raw_to_angle_deg,
     raw_to_joint_deg,
+    raw_to_normalized,
     signed_value,
 )
 
@@ -84,6 +85,9 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(normalized_to_raw(-100.0, config), 3500)
         self.assertEqual(normalized_to_raw(0.0, config), 1700)
         self.assertEqual(normalized_to_raw(100.0, config), 1000)
+        self.assertAlmostEqual(raw_to_normalized(3500, config), -100.0)
+        self.assertAlmostEqual(raw_to_normalized(1700, config), 0.0)
+        self.assertAlmostEqual(raw_to_normalized(1000, config), 100.0)
         self.assertAlmostEqual(raw_to_angle_deg(3500, config), -30.0)
         self.assertAlmostEqual(raw_to_angle_deg(1700, config), 0.0)
         self.assertAlmostEqual(raw_to_angle_deg(1000, config), 30.0)
@@ -104,6 +108,9 @@ class ConversionTest(unittest.TestCase):
         self.assertEqual(normalized_to_raw(-100.0, config), 1000)
         self.assertEqual(normalized_to_raw(0.0, config), 1700)
         self.assertEqual(normalized_to_raw(100.0, config), 3500)
+        self.assertAlmostEqual(raw_to_normalized(1000, config), -100.0)
+        self.assertAlmostEqual(raw_to_normalized(1700, config), 0.0)
+        self.assertAlmostEqual(raw_to_normalized(3500, config), 100.0)
         self.assertEqual(config.home_raw, 1700)
 
     def test_joint_angle_is_relative_to_home_angle(self):

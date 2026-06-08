@@ -476,16 +476,11 @@ function TabMotion() {
     Store.set({ playing: true, activePattern: p.id }); setPlaying(true);
     Store.pushLog('cmd', 'studio', `미리보기 재생: '${p.name}'`);
   };
-  const poseDegAt = (time_ms) => {
-    const values = previewPoseAt(p, time_ms);
-    const positions = {};
-    JOINT_IDS.forEach(id => { positions[id] = valToDeg(id, values[id] || 0); });
-    return positions;
-  };
+  const poseNormalizedAt = (time_ms) => previewPoseAt(p, time_ms);
   const syncMotorAt = async (time_ms) => {
     const syncTime = Math.max(0, Math.min(dur, Math.round(time_ms)));
     Store.pushLog('cmd', 'studio', `모터 동기화 시작 @ ${syncTime}ms`);
-    const result = await Store.syncMotionToPose(poseDegAt(syncTime), 5000);
+    const result = await Store.syncMotionToNormalizedPose(poseNormalizedAt(syncTime), 5000);
     if (result.success) {
       setSyncedAt({ patternId: p.id, time_ms: syncTime });
       Store.pushLog('ok', 'studio', `동기화됨 @ ${syncTime}ms`);

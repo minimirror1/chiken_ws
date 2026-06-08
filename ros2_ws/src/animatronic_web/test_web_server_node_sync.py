@@ -32,7 +32,7 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
             "success": True,
             "message": "ok",
             "diagnostics": [{"joint_name": "lower_pitch", "angle_deg": 30.0}],
-            "joint_positions": [{"joint_name": "lower_pitch", "joint_angle_deg": 5.0}],
+            "joint_positions": [{"joint_name": "lower_pitch", "joint_angle_deg": 5.0, "normalized_value": 12.0}],
         })
         return node
 
@@ -45,7 +45,7 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
 
         result = asyncio.run(WebBridgeNode.sync_motion_pose(
             node,
-            MotionSyncRequest(positions={"lower_pitch": 10.0}, duration_ms=0),
+            MotionSyncRequest(normalized_positions={"lower_pitch": 10.0}, duration_ms=0),
         ))
 
         self.assertFalse(result["success"])
@@ -62,25 +62,25 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
                 {"joint_name": "lower_pitch", "angle_deg": 5.0},
             ],
             "joint_positions": [
-                {"joint_name": "lower_yaw", "joint_angle_deg": 40.0},
-                {"joint_name": "lower_pitch", "joint_angle_deg": 5.0},
+                {"joint_name": "lower_yaw", "joint_angle_deg": 40.0, "normalized_value": 44.0},
+                {"joint_name": "lower_pitch", "joint_angle_deg": 5.0, "normalized_value": 12.0},
             ],
         })
         published = []
-        node._publish_target_positions = lambda positions, source: published.append((positions, source))
+        node._publish_normalized_targets = lambda positions, source: published.append((positions, source))
 
         result = asyncio.run(WebBridgeNode.sync_motion_pose(
             node,
-            MotionSyncRequest(positions={"lower_yaw": 90.0, "lower_pitch": 25.0}, duration_ms=40),
+            MotionSyncRequest(normalized_positions={"lower_yaw": 90.0, "lower_pitch": 25.0}, duration_ms=40),
         ))
 
         self.assertTrue(result["success"])
         self.assertGreaterEqual(len(published), 2)
-        self.assertAlmostEqual(published[0][0]["lower_yaw"], 40.0)
-        self.assertAlmostEqual(published[0][0]["lower_pitch"], 5.0)
+        self.assertAlmostEqual(published[0][0]["lower_yaw"], 44.0)
+        self.assertAlmostEqual(published[0][0]["lower_pitch"], 12.0)
         self.assertAlmostEqual(published[-1][0]["lower_yaw"], 90.0)
         self.assertAlmostEqual(published[-1][0]["lower_pitch"], 25.0)
-        self.assertEqual(published[-1][1], "web:motor_joint_deg")
+        self.assertEqual(published[-1][1], "web:motion_sync")
         self.assertEqual(node._operation_status["phase"], "done")
         self.assertAlmostEqual(node._operation_status["progress"], 1.0)
 
@@ -95,11 +95,11 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
                 node._operation_status["remaining_ms"],
             ))
 
-        node._publish_target_positions = publish
+        node._publish_normalized_targets = publish
 
         result = asyncio.run(WebBridgeNode.sync_motion_pose(
             node,
-            MotionSyncRequest(positions={"lower_pitch": 25.0}, duration_ms=40),
+            MotionSyncRequest(normalized_positions={"lower_pitch": 25.0}, duration_ms=40),
         ))
 
         self.assertTrue(result["success"])
@@ -114,24 +114,24 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
         def publish(_positions, _source):
             node._sync_stop_event.set()
 
-        node._publish_target_positions = publish
+        node._publish_normalized_targets = publish
 
         result = asyncio.run(WebBridgeNode.sync_motion_pose(
             node,
-            MotionSyncRequest(positions={"lower_pitch": 25.0}, duration_ms=80),
+            MotionSyncRequest(normalized_positions={"lower_pitch": 25.0}, duration_ms=80),
         ))
 
         self.assertFalse(result["success"])
         self.assertEqual(node._operation_status["phase"], "stopped")
 
-    def test_sync_publish_uses_joint_deg_without_normalized_percent(self):
+    def test_joint_deg_publish_uses_angle_without_normalized_percent(self):
         node = self.make_node()
         published = []
         node.target_joints_pub = type("Pub", (), {
             "publish": lambda self, msg: published.append(msg)
         })()
 
-        WebBridgeNode._publish_target_positions(
+        WebBridgeNode._publish_joint_deg_targets(
             node,
             {"lower_pitch": 5.0},
             "web:motor_joint_deg",
@@ -143,13 +143,32 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
         self.assertAlmostEqual(target.angle_deg, 5.0)
         self.assertAlmostEqual(target.normalized_value, 0.0)
 
+    def test_sync_publish_uses_normalized_without_angle_deg(self):
+        node = self.make_node()
+        published = []
+        node.target_joints_pub = type("Pub", (), {
+            "publish": lambda self, msg: published.append(msg)
+        })()
+
+        WebBridgeNode._publish_normalized_targets(
+            node,
+            {"lower_pitch": 25.0},
+            "web:motion_sync",
+        )
+
+        target = published[0].joints[0]
+        self.assertEqual(published[0].source, "web:motion_sync")
+        self.assertEqual(target.name, "lower_pitch")
+        self.assertAlmostEqual(target.normalized_value, 25.0)
+        self.assertAlmostEqual(target.angle_deg, 0.0)
+
     def test_sync_rejects_while_motion_running(self):
         node = self.make_node()
         node._state["motion_status"] = {"status": MotionStatus.RUNNING}
 
         result = asyncio.run(WebBridgeNode.sync_motion_pose(
             node,
-            MotionSyncRequest(positions={"lower_pitch": 10.0}, duration_ms=0),
+            MotionSyncRequest(normalized_positions={"lower_pitch": 10.0}, duration_ms=0),
         ))
 
         self.assertFalse(result["success"])
@@ -204,6 +223,27 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
         self.assertEqual(feedback_statuses[0]["phase"], "running_pattern")
         self.assertAlmostEqual(feedback_statuses[0]["progress"], 0.42)
         self.assertEqual(feedback_statuses[0]["current_keyframe"], "120")
+
+    def test_sync_final_target_matches_run_first_target_at_nonzero_start(self):
+        node = self.make_node()
+        node.call_motor_positions = motor_positions_result({
+            "success": True,
+            "message": "ok",
+            "diagnostics": [{"joint_name": "lower_pitch", "angle_deg": 5.0}],
+            "joint_positions": [{"joint_name": "lower_pitch", "joint_angle_deg": 5.0, "normalized_value": 0.0}],
+        })
+        sync_published = []
+        node._publish_normalized_targets = lambda positions, source: sync_published.append((positions, source))
+        run_first_lower_pitch = 50.0
+
+        result = asyncio.run(WebBridgeNode.sync_motion_pose(
+            node,
+            MotionSyncRequest(normalized_positions={"lower_pitch": run_first_lower_pitch}, duration_ms=0),
+        ))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(sync_published[-1][1], "web:motion_sync")
+        self.assertAlmostEqual(sync_published[-1][0]["lower_pitch"], run_first_lower_pitch)
 
 
 if __name__ == "__main__":
