@@ -1,17 +1,66 @@
 import unittest
+from unittest.mock import patch
 
+from animatronic_dynamixel import motor_node
 from animatronic_dynamixel.motor_node import (
     FAILURE_BLOCK_THRESHOLD,
     MotorConfig,
     PROFILES,
     MockDynamixelBackend,
+    RealDynamixelBackend,
     angle_to_raw,
+    convert_profile_value,
     normalized_to_raw,
     raw_to_angle_deg,
     raw_to_joint_deg,
     raw_to_normalized,
     signed_value,
 )
+
+
+class FakePortHandler:
+    def __init__(self, port):
+        self.port = port
+
+
+class FakePacketHandler:
+    def __init__(self, protocol_version):
+        self.protocol_version = protocol_version
+
+    def getTxRxResult(self, result):
+        return f"comm {result}"
+
+    def getRxPacketError(self, error):
+        return f"packet {error}"
+
+
+class FakeGroupBulkRead:
+    instances = []
+    data = {}
+    unavailable = set()
+    tx_result = 0
+
+    def __init__(self, port_handler, packet_handler):
+        self.port_handler = port_handler
+        self.packet_handler = packet_handler
+        self.params = []
+        FakeGroupBulkRead.instances.append(self)
+
+    def addParam(self, motor_id, address, length):
+        self.params.append((motor_id, address, length))
+        return True
+
+    def txRxPacket(self):
+        return FakeGroupBulkRead.tx_result
+
+    def isAvailable(self, motor_id, address, length):
+        return (motor_id, address, length) not in FakeGroupBulkRead.unavailable
+
+    def getData(self, motor_id, address, length):
+        return FakeGroupBulkRead.data[(motor_id, address, length)]
+
+    def clearParam(self):
+        pass
 
 
 class ConversionTest(unittest.TestCase):
@@ -197,6 +246,139 @@ class FailurePolicyTest(unittest.TestCase):
 
     def test_threshold_constant_matches_policy(self):
         self.assertEqual(FAILURE_BLOCK_THRESHOLD, 5)
+
+
+class RealBulkReadTest(unittest.TestCase):
+    def setUp(self):
+        FakeGroupBulkRead.instances = []
+        FakeGroupBulkRead.data = {}
+        FakeGroupBulkRead.unavailable = set()
+        FakeGroupBulkRead.tx_result = 0
+        patchers = [
+            patch.object(motor_node, "PortHandler", FakePortHandler),
+            patch.object(motor_node, "PacketHandler", FakePacketHandler),
+            patch.object(motor_node, "GroupBulkRead", FakeGroupBulkRead),
+            patch.object(motor_node, "COMM_SUCCESS", 0),
+        ]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_bulk_read_registers_profile_blocks(self):
+        configs = [
+            self._config("lower_pitch", 1, "XM430-W210-T"),
+            self._config("upper_pitch", 3, "XL320"),
+        ]
+        self._set_bulk_values(configs)
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        backend.read_diagnostics()
+
+        self.assertEqual(FakeGroupBulkRead.instances[0].params, [(1, 126, 21)])
+        self.assertEqual(FakeGroupBulkRead.instances[1].params, [(3, 37, 10)])
+
+    def test_bulk_read_populates_diagnostics(self):
+        configs = [
+            self._config("lower_pitch", 1, "XM430-W210-T"),
+            self._config("upper_pitch", 3, "XL320"),
+        ]
+        self._set_bulk_values(
+            configs,
+            {
+                (1, "position"): 2050,
+                (1, "voltage"): 121,
+                (1, "temperature"): 34,
+                (1, "load"): 10,
+                (3, "position"): 513,
+                (3, "voltage"): 74,
+                (3, "temperature"): 30,
+                (3, "load"): 512,
+            },
+        )
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        diagnostics = {
+            diagnostic.id: diagnostic for diagnostic in backend.read_diagnostics()
+        }
+
+        self.assertEqual(diagnostics[1].raw_position, 2050)
+        self.assertAlmostEqual(diagnostics[1].voltage_v, 12.1)
+        self.assertAlmostEqual(diagnostics[1].temperature_c, 34.0)
+        self.assertAlmostEqual(diagnostics[1].load, 26.9)
+        self.assertEqual(diagnostics[3].raw_position, 513)
+        self.assertAlmostEqual(diagnostics[3].voltage_v, 7.4)
+        self.assertAlmostEqual(diagnostics[3].temperature_c, 30.0)
+        self.assertAlmostEqual(diagnostics[3].load, 512 / 1023.0)
+
+    def test_signed_load_conversion_matches_profile_policy(self):
+        profile = PROFILES["XM430-W210-T"]
+        self.assertAlmostEqual(convert_profile_value(profile, "load", 0xFFFF), -2.69)
+
+    def test_read_position_field_uses_bulk_values(self):
+        configs = [self._config("lower_pitch", 1, "XM430-W210-T")]
+        self._set_bulk_values(configs, {(1, "position"): 2100})
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        self.assertEqual(backend.read_diagnostic_field("position"), {1: 2100})
+
+    def test_unavailable_field_records_failure_and_keeps_other_results(self):
+        configs = [
+            self._config("lower_pitch", 1, "XM430-W210-T"),
+            self._config("upper_pitch", 2, "XM430-W210-T"),
+        ]
+        self._set_bulk_values(
+            configs,
+            {
+                (1, "position"): 2050,
+                (2, "voltage"): 120,
+                (2, "temperature"): 33,
+                (2, "load"): 0,
+            },
+        )
+        profile = PROFILES["XM430-W210-T"]
+        FakeGroupBulkRead.unavailable = {
+            (2, profile.present_position_addr, profile.present_position_len)
+        }
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        diagnostics = {
+            diagnostic.id: diagnostic for diagnostic in backend.read_diagnostics()
+        }
+
+        self.assertEqual(diagnostics[1].raw_position, 2050)
+        self.assertEqual(diagnostics[2].raw_position, configs[1].home_raw)
+        self.assertEqual(backend.failure_counts()[2], 1)
+        self.assertIn("position unavailable", diagnostics[2].error_message)
+
+    def _config(self, joint_name, motor_id, model):
+        profile = PROFILES[model]
+        return MotorConfig(
+            joint_name=joint_name,
+            motor_id=motor_id,
+            model=model,
+            min_raw=profile.raw_min,
+            home_raw=profile.raw_home,
+            max_raw=profile.raw_max,
+            min_angle_deg=-90.0,
+            home_angle_deg=0.0,
+            max_angle_deg=90.0,
+            profile=profile,
+        )
+
+    def _set_bulk_values(self, configs, overrides=None):
+        overrides = overrides or {}
+        for config in configs:
+            profile = config.profile
+            defaults = {
+                "position": config.home_raw,
+                "voltage": 120,
+                "temperature": 32,
+                "load": 0,
+            }
+            for field, raw_value in defaults.items():
+                raw_value = overrides.get((config.motor_id, field), raw_value)
+                address, length = motor_node.sync_read_address(profile, field)
+                FakeGroupBulkRead.data[(config.motor_id, address, length)] = raw_value
 
 
 if __name__ == "__main__":

@@ -24,12 +24,14 @@ from std_srvs.srv import Trigger
 
 try:
     from dynamixel_sdk import COMM_SUCCESS
+    from dynamixel_sdk import GroupBulkRead
     from dynamixel_sdk import GroupSyncRead
     from dynamixel_sdk import GroupSyncWrite
     from dynamixel_sdk import PacketHandler
     from dynamixel_sdk import PortHandler
 except ImportError:  # pragma: no cover - exercised only without SDK installed.
     COMM_SUCCESS = 0
+    GroupBulkRead = None
     GroupSyncRead = None
     GroupSyncWrite = None
     PacketHandler = None
@@ -58,6 +60,8 @@ class ControlTableProfile:
     temperature_len: int
     load_addr: int
     load_len: int
+    diagnostic_block_addr: int
+    diagnostic_block_len: int
     load_signed: bool = False
     load_scale: float = 1.0
 
@@ -80,6 +84,8 @@ PROFILES = {
         temperature_len=1,
         load_addr=126,  # Present Current. Stored in generic load field.
         load_len=2,
+        diagnostic_block_addr=126,
+        diagnostic_block_len=21,
         load_signed=True,
         load_scale=2.69,
     ),
@@ -100,6 +106,8 @@ PROFILES = {
         temperature_len=1,
         load_addr=126,
         load_len=2,
+        diagnostic_block_addr=126,
+        diagnostic_block_len=21,
         load_signed=True,
         load_scale=2.69,
     ),
@@ -120,10 +128,14 @@ PROFILES = {
         temperature_len=1,
         load_addr=41,
         load_len=2,
+        diagnostic_block_addr=37,
+        diagnostic_block_len=10,
         load_signed=False,
         load_scale=1.0 / 1023.0,
     ),
 }
+
+DIAGNOSTIC_FIELDS = ("position", "voltage", "temperature", "load")
 
 
 @dataclass(frozen=True)
@@ -286,7 +298,7 @@ class RealDynamixelBackend(DynamixelBackend):
         protocol_version: float,
         motor_configs: Iterable[MotorConfig],
     ) -> None:
-        if PortHandler is None or PacketHandler is None:
+        if PortHandler is None or PacketHandler is None or GroupBulkRead is None:
             raise RuntimeError("dynamixel-sdk is not installed in this environment")
 
         self.port = port
@@ -356,10 +368,11 @@ class RealDynamixelBackend(DynamixelBackend):
             self._sync_write_goal_positions(profile, group_items)
 
     def read_diagnostics(self) -> List[MotorDiagnostic]:
-        positions = self._read_profile_field("position")
-        voltages = self._read_profile_field("voltage")
-        temperatures = self._read_profile_field("temperature")
-        loads = self._read_profile_field("load")
+        values = self._read_bulk_diagnostic_values()
+        positions = values["position"]
+        voltages = values["voltage"]
+        temperatures = values["temperature"]
+        loads = values["load"]
 
         diagnostics = []
         for config in self._configs:
@@ -383,7 +396,9 @@ class RealDynamixelBackend(DynamixelBackend):
         return diagnostics
 
     def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
-        return self._read_profile_field(field)
+        if field not in DIAGNOSTIC_FIELDS:
+            raise ValueError(f"Unsupported diagnostic field: {field}")
+        return self._read_bulk_diagnostic_values()[field]
 
     def home(self) -> None:
         self.write_joint_targets(
@@ -511,6 +526,64 @@ class RealDynamixelBackend(DynamixelBackend):
                 raw_value = int(group.getData(config.motor_id, address, length))
                 values[config.motor_id] = convert_profile_value(profile, field, raw_value)
                 self._decrement_failure(config.motor_id)
+            group.clearParam()
+        return values
+
+    def _read_bulk_diagnostic_values(self) -> dict[str, dict[int, float | int]]:
+        values: dict[str, dict[int, float | int]] = {
+            field: {} for field in DIAGNOSTIC_FIELDS
+        }
+        for profile, configs in group_configs_by_profile(self._configs).items():
+            group = GroupBulkRead(self._port_handler, self._packet_handler)
+            added: list[MotorConfig] = []
+            for config in configs:
+                if not group.addParam(
+                    config.motor_id,
+                    profile.diagnostic_block_addr,
+                    profile.diagnostic_block_len,
+                ):
+                    self._increment_failure(
+                        config.motor_id,
+                        "bulk read diagnostics addParam failed",
+                    )
+                    continue
+                added.append(config)
+
+            if not added:
+                group.clearParam()
+                continue
+
+            result = group.txRxPacket()
+            if result != COMM_SUCCESS:
+                for config in added:
+                    self._record_comm(
+                        config.motor_id,
+                        result,
+                        0,
+                        "bulk read diagnostics",
+                    )
+                group.clearParam()
+                continue
+
+            for config in added:
+                motor_ok = True
+                for field in DIAGNOSTIC_FIELDS:
+                    address, length = sync_read_address(profile, field)
+                    if not group.isAvailable(config.motor_id, address, length):
+                        self._increment_failure(
+                            config.motor_id,
+                            f"bulk read {field} unavailable",
+                        )
+                        motor_ok = False
+                        continue
+                    raw_value = int(group.getData(config.motor_id, address, length))
+                    values[field][config.motor_id] = convert_profile_value(
+                        profile,
+                        field,
+                        raw_value,
+                    )
+                if motor_ok:
+                    self._decrement_failure(config.motor_id)
             group.clearParam()
         return values
 
@@ -687,8 +760,6 @@ class MotorNode(Node):
         self._connected = self._backend.connect()
         self._torque_enabled = False
         self._last_diagnostics: List[MotorDiagnostic] = []
-        self._diagnostic_fields = ("position", "voltage", "temperature", "load")
-        self._diagnostic_field_index = 0
         self._stopped = False
         self._target_lock = threading.Lock()
         self._latest_targets: dict[str, int] = {}
@@ -1154,41 +1225,7 @@ class MotorNode(Node):
         self._status_pub.publish(status)
 
     def _refresh_diagnostics(self) -> None:
-        field = self._diagnostic_fields[self._diagnostic_field_index]
-        self._diagnostic_field_index = (
-            self._diagnostic_field_index + 1
-        ) % len(self._diagnostic_fields)
-        values = self._backend.read_diagnostic_field(field)
-        if values is None:
-            self._last_diagnostics = self._backend.read_diagnostics()
-            return
-
-        previous = {
-            diagnostic.joint_name: diagnostic for diagnostic in self._last_diagnostics
-        }
-        next_diagnostics: list[MotorDiagnostic] = []
-        failure_counts = self._backend.failure_counts()
-        torque_by_id = self._backend.torque_enabled_by_id()
-        for config in self._motor_configs:
-            diagnostic = previous.get(config.joint_name) or MotorDiagnostic()
-            diagnostic.id = config.motor_id
-            diagnostic.joint_name = config.joint_name
-            diagnostic.model = config.model
-            if field == "position":
-                diagnostic.raw_position = int(values.get(config.motor_id, config.home_raw))
-                diagnostic.angle_deg = raw_to_angle_deg(diagnostic.raw_position, config)
-            elif field == "voltage":
-                diagnostic.voltage_v = float(values.get(config.motor_id, diagnostic.voltage_v))
-            elif field == "temperature":
-                diagnostic.temperature_c = float(
-                    values.get(config.motor_id, diagnostic.temperature_c)
-                )
-            elif field == "load":
-                diagnostic.load = float(values.get(config.motor_id, diagnostic.load))
-            diagnostic.torque_enabled = torque_by_id.get(config.motor_id, False)
-            diagnostic.error_code = min(failure_counts.get(config.motor_id, 0), 255)
-            next_diagnostics.append(diagnostic)
-        self._last_diagnostics = next_diagnostics
+        self._last_diagnostics = self._backend.read_diagnostics()
 
     def _read_current_position_diagnostics(self) -> list[MotorDiagnostic]:
         values = self._backend.read_diagnostic_field("position")
