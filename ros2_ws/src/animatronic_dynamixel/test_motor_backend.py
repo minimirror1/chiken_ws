@@ -1,10 +1,11 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from animatronic_dynamixel import motor_node
 from animatronic_dynamixel.motor_node import (
     FAILURE_BLOCK_THRESHOLD,
     MotorConfig,
+    MotorNode,
     PROFILES,
     MockDynamixelBackend,
     RealDynamixelBackend,
@@ -19,11 +20,31 @@ from animatronic_dynamixel.motor_node import (
 
 
 class FakePortHandler:
+    instances = []
+
     def __init__(self, port):
         self.port = port
+        self.opened = False
+        self.closed = False
+        FakePortHandler.instances.append(self)
+
+    def openPort(self):
+        self.opened = True
+        return True
+
+    def closePort(self):
+        self.closed = True
+
+    def setBaudRate(self, baudrate):
+        self.baudrate = baudrate
+        return True
 
 
 class FakePacketHandler:
+    ping_exception = None
+    write_exception = None
+    reboot_exception = None
+
     def __init__(self, protocol_version):
         self.protocol_version = protocol_version
 
@@ -33,12 +54,31 @@ class FakePacketHandler:
     def getRxPacketError(self, error):
         return f"packet {error}"
 
+    def ping(self, port_handler, motor_id):
+        del port_handler
+        if FakePacketHandler.ping_exception is not None:
+            raise FakePacketHandler.ping_exception
+        return motor_id, 0, 0
+
+    def write1ByteTxRx(self, port_handler, motor_id, address, value):
+        del port_handler, motor_id, address, value
+        if FakePacketHandler.write_exception is not None:
+            raise FakePacketHandler.write_exception
+        return 0, 0
+
+    def reboot(self, port_handler, motor_id):
+        del port_handler, motor_id
+        if FakePacketHandler.reboot_exception is not None:
+            raise FakePacketHandler.reboot_exception
+        return 0, 0
+
 
 class FakeGroupBulkRead:
     instances = []
     data = {}
     unavailable = set()
     tx_result = 0
+    tx_exception = None
 
     def __init__(self, port_handler, packet_handler):
         self.port_handler = port_handler
@@ -51,6 +91,8 @@ class FakeGroupBulkRead:
         return True
 
     def txRxPacket(self):
+        if FakeGroupBulkRead.tx_exception is not None:
+            raise FakeGroupBulkRead.tx_exception
         return FakeGroupBulkRead.tx_result
 
     def isAvailable(self, motor_id, address, length):
@@ -247,13 +289,54 @@ class FailurePolicyTest(unittest.TestCase):
     def test_threshold_constant_matches_policy(self):
         self.assertEqual(FAILURE_BLOCK_THRESHOLD, 5)
 
+    def test_node_reconnects_at_configured_failure_threshold(self):
+        node = MotorNode.__new__(MotorNode)
+        backend = Mock()
+        backend.reconnect.return_value = True
+        node._backend = backend
+        node._connected = False
+        node._shutdown_requested = False
+        node._reconnect_failure_threshold = 5
+        node._shutdown_failure_threshold = 10
+        node.get_logger = Mock(return_value=Mock())
+
+        MotorNode._handle_backend_failures(node, {1: 5})
+
+        backend.reconnect.assert_called_once_with()
+        self.assertTrue(node._connected)
+
+    def test_node_shutdowns_at_configured_failure_threshold(self):
+        node = MotorNode.__new__(MotorNode)
+        backend = Mock()
+        node._backend = backend
+        node._torque_enabled = True
+        node._stopped = False
+        node._shutdown_requested = False
+        node._reconnect_failure_threshold = 5
+        node._shutdown_failure_threshold = 10
+        node.get_logger = Mock(return_value=Mock())
+
+        with patch.object(motor_node.rclpy, "shutdown") as shutdown:
+            MotorNode._handle_backend_failures(node, {1: 10})
+
+        backend.stop.assert_called_once_with()
+        shutdown.assert_called_once_with()
+        self.assertTrue(node._shutdown_requested)
+        self.assertFalse(node._torque_enabled)
+        self.assertTrue(node._stopped)
+
 
 class RealBulkReadTest(unittest.TestCase):
     def setUp(self):
+        FakePortHandler.instances = []
+        FakePacketHandler.ping_exception = None
+        FakePacketHandler.write_exception = None
+        FakePacketHandler.reboot_exception = None
         FakeGroupBulkRead.instances = []
         FakeGroupBulkRead.data = {}
         FakeGroupBulkRead.unavailable = set()
         FakeGroupBulkRead.tx_result = 0
+        FakeGroupBulkRead.tx_exception = None
         patchers = [
             patch.object(motor_node, "PortHandler", FakePortHandler),
             patch.object(motor_node, "PacketHandler", FakePacketHandler),
@@ -349,6 +432,43 @@ class RealBulkReadTest(unittest.TestCase):
         self.assertEqual(diagnostics[2].raw_position, configs[1].home_raw)
         self.assertEqual(backend.failure_counts()[2], 1)
         self.assertIn("position unavailable", diagnostics[2].error_message)
+
+    def test_bulk_read_io_exception_records_failure_without_raising(self):
+        configs = [self._config("lower_pitch", 1, "XM430-W210-T")]
+        FakeGroupBulkRead.tx_exception = OSError("device disconnected")
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        diagnostics = backend.read_diagnostics()
+
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].raw_position, configs[0].home_raw)
+        self.assertEqual(backend.failure_counts()[1], 1)
+        self.assertIn("bulk read diagnostics", diagnostics[0].error_message)
+        self.assertIn("device disconnected", diagnostics[0].error_message)
+
+    def test_torque_io_exception_records_failure_without_raising(self):
+        configs = [self._config("lower_pitch", 1, "XM430-W210-T")]
+        FakePacketHandler.write_exception = OSError("write failed")
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+
+        backend.set_torque_enabled(True)
+
+        self.assertEqual(backend.failure_counts()[1], 1)
+        self.assertFalse(backend.torque_enabled_by_id()[1])
+
+    def test_reconnect_replaces_port_and_clears_failures_on_success(self):
+        configs = [self._config("lower_pitch", 1, "XM430-W210-T")]
+        FakeGroupBulkRead.tx_exception = OSError("device disconnected")
+        backend = RealDynamixelBackend("/dev/null", 57600, 2.0, configs)
+        backend.read_diagnostics()
+        first_port = FakePortHandler.instances[0]
+
+        self.assertTrue(backend.reconnect())
+
+        self.assertTrue(first_port.closed)
+        self.assertEqual(len(FakePortHandler.instances), 2)
+        self.assertTrue(FakePortHandler.instances[1].opened)
+        self.assertEqual(backend.failure_counts()[1], 0)
 
     def _config(self, joint_name, motor_id, model):
         profile = PROFILES[model]

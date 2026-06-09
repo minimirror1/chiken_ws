@@ -23,6 +23,11 @@ from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 try:
+    from serial import SerialException
+except ImportError:  # pragma: no cover - exercised only without pyserial installed.
+    SerialException = OSError
+
+try:
     from dynamixel_sdk import COMM_SUCCESS
     from dynamixel_sdk import GroupBulkRead
     from dynamixel_sdk import GroupSyncRead
@@ -40,6 +45,7 @@ except ImportError:  # pragma: no cover - exercised only without SDK installed.
 
 DEFAULT_JOINT_NAMES = ("lower_yaw", "lower_pitch", "upper_yaw", "upper_pitch")
 FAILURE_BLOCK_THRESHOLD = 5
+DYNAMIXEL_IO_ERRORS = (OSError, SerialException)
 
 
 @dataclass(frozen=True)
@@ -164,6 +170,13 @@ class DynamixelBackend:
     def connect(self) -> bool:
         raise NotImplementedError
 
+    def disconnect(self) -> None:
+        pass
+
+    def reconnect(self) -> bool:
+        self.disconnect()
+        return self.connect()
+
     def set_torque_enabled(self, enabled: bool) -> None:
         raise NotImplementedError
 
@@ -214,6 +227,9 @@ class MockDynamixelBackend(DynamixelBackend):
     def connect(self) -> bool:
         self.connected = True
         return True
+
+    def disconnect(self) -> None:
+        self.connected = False
 
     def set_torque_enabled(self, enabled: bool) -> None:
         for state in self._states.values():
@@ -317,10 +333,21 @@ class RealDynamixelBackend(DynamixelBackend):
         }
 
     def connect(self) -> bool:
-        if not self._port_handler.openPort():
+        self._active_ids.clear()
+        try:
+            opened = self._port_handler.openPort()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"open DYNAMIXEL port: {exc}")
+            return False
+        if not opened:
             self._mark_all_failed(f"failed to open DYNAMIXEL port: {self.port}")
             return False
-        if not self._port_handler.setBaudRate(self.baudrate):
+        try:
+            baudrate_set = self._port_handler.setBaudRate(self.baudrate)
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"set DYNAMIXEL baudrate: {exc}")
+            return False
+        if not baudrate_set:
             self._mark_all_failed(f"failed to set DYNAMIXEL baudrate: {self.baudrate}")
             return False
 
@@ -328,14 +355,32 @@ class RealDynamixelBackend(DynamixelBackend):
             self._ping(config.motor_id)
         return bool(self._active_ids)
 
+    def disconnect(self) -> None:
+        try:
+            self._port_handler.closePort()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"close DYNAMIXEL port: {exc}")
+
+    def reconnect(self) -> bool:
+        self.disconnect()
+        self._port_handler = PortHandler(self.port)
+        connected = self.connect()
+        if connected:
+            self._clear_failures()
+        return connected
+
     def set_torque_enabled(self, enabled: bool) -> None:
         for config in self._configs:
-            result, error = self._packet_handler.write1ByteTxRx(
-                self._port_handler,
-                config.motor_id,
-                config.profile.torque_enable_addr,
-                1 if enabled else 0,
-            )
+            try:
+                result, error = self._packet_handler.write1ByteTxRx(
+                    self._port_handler,
+                    config.motor_id,
+                    config.profile.torque_enable_addr,
+                    1 if enabled else 0,
+                )
+            except DYNAMIXEL_IO_ERRORS as exc:
+                self._increment_failure(config.motor_id, f"torque enable: {exc}")
+                continue
             self._record_comm(config.motor_id, result, error, "torque enable")
             self._torque_enabled_by_id[config.motor_id] = enabled
 
@@ -343,12 +388,16 @@ class RealDynamixelBackend(DynamixelBackend):
         config = self._config_by_id.get(motor_id)
         if config is None:
             return False
-        result, error = self._packet_handler.write1ByteTxRx(
-            self._port_handler,
-            config.motor_id,
-            config.profile.torque_enable_addr,
-            1 if enabled else 0,
-        )
+        try:
+            result, error = self._packet_handler.write1ByteTxRx(
+                self._port_handler,
+                config.motor_id,
+                config.profile.torque_enable_addr,
+                1 if enabled else 0,
+            )
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(config.motor_id, f"torque enable: {exc}")
+            return False
         ok = self._record_comm(config.motor_id, result, error, "torque enable")
         if ok:
             self._torque_enabled_by_id[config.motor_id] = enabled
@@ -412,7 +461,11 @@ class RealDynamixelBackend(DynamixelBackend):
         config = self._config_by_id.get(motor_id)
         if config is None:
             return False
-        result, error = self._packet_handler.reboot(self._port_handler, motor_id)
+        try:
+            result, error = self._packet_handler.reboot(self._port_handler, motor_id)
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(motor_id, f"reboot: {exc}")
+            return False
         self._record_comm(motor_id, result, error, "reboot")
         if result != COMM_SUCCESS or error:
             return False
@@ -449,10 +502,15 @@ class RealDynamixelBackend(DynamixelBackend):
         }
 
     def _ping(self, motor_id: int) -> bool:
-        _model_number, result, error = self._packet_handler.ping(
-            self._port_handler,
-            motor_id,
-        )
+        try:
+            _model_number, result, error = self._packet_handler.ping(
+                self._port_handler,
+                motor_id,
+            )
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(motor_id, f"ping: {exc}")
+            self._active_ids.discard(motor_id)
+            return False
         ok = self._record_comm(motor_id, result, error, "ping")
         if ok:
             self._active_ids.add(motor_id)
@@ -486,7 +544,16 @@ class RealDynamixelBackend(DynamixelBackend):
             group.clearParam()
             return
 
-        result = group.txPacket()
+        try:
+            result = group.txPacket()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            for config in added:
+                self._increment_failure(
+                    config.motor_id,
+                    f"sync write goal position: {exc}",
+                )
+            group.clearParam()
+            return
         for config in added:
             self._record_comm(config.motor_id, result, 0, "sync write goal position")
         group.clearParam()
@@ -512,7 +579,13 @@ class RealDynamixelBackend(DynamixelBackend):
                 group.clearParam()
                 continue
 
-            result = group.txRxPacket()
+            try:
+                result = group.txRxPacket()
+            except DYNAMIXEL_IO_ERRORS as exc:
+                for config in added:
+                    self._increment_failure(config.motor_id, f"sync read {field}: {exc}")
+                group.clearParam()
+                continue
             if result != COMM_SUCCESS:
                 for config in added:
                     self._record_comm(config.motor_id, result, 0, f"sync read {field}")
@@ -553,7 +626,16 @@ class RealDynamixelBackend(DynamixelBackend):
                 group.clearParam()
                 continue
 
-            result = group.txRxPacket()
+            try:
+                result = group.txRxPacket()
+            except DYNAMIXEL_IO_ERRORS as exc:
+                for config in added:
+                    self._increment_failure(
+                        config.motor_id,
+                        f"bulk read diagnostics: {exc}",
+                    )
+                group.clearParam()
+                continue
             if result != COMM_SUCCESS:
                 for config in added:
                     self._record_comm(
@@ -613,6 +695,11 @@ class RealDynamixelBackend(DynamixelBackend):
     def _decrement_failure(self, motor_id: int) -> None:
         self._failure_counts[motor_id] = max(0, self._failure_counts.get(motor_id, 0) - 1)
         if self._failure_counts[motor_id] == 0:
+            self._last_errors[motor_id] = ""
+
+    def _clear_failures(self) -> None:
+        for motor_id in self._failure_counts:
+            self._failure_counts[motor_id] = 0
             self._last_errors[motor_id] = ""
 
     def _mark_all_failed(self, message: str) -> None:
@@ -761,6 +848,13 @@ class MotorNode(Node):
         self._torque_enabled = False
         self._last_diagnostics: List[MotorDiagnostic] = []
         self._stopped = False
+        self._shutdown_requested = False
+        self._reconnect_failure_threshold = int(
+            self.get_parameter("reconnect_failure_threshold").value
+        )
+        self._shutdown_failure_threshold = int(
+            self.get_parameter("shutdown_failure_threshold").value
+        )
         self._target_lock = threading.Lock()
         self._latest_targets: dict[str, int] = {}
         self._target_dirty = False
@@ -836,6 +930,8 @@ class MotorNode(Node):
         self.declare_parameter("state_publish_rate_hz", 20.0)
         self.declare_parameter("diagnostics_publish_rate_hz", 20.0)
         self.declare_parameter("command_write_rate_hz", 50.0)
+        self.declare_parameter("reconnect_failure_threshold", 5)
+        self.declare_parameter("shutdown_failure_threshold", 10)
         self.declare_parameter("joint_names", list(DEFAULT_JOINT_NAMES))
 
         self.declare_parameter("motor_ids", [1, 2, 3, 4])
@@ -1223,9 +1319,43 @@ class MotorNode(Node):
             status.status = MotorStatus.OK
             status.message = "OK"
         self._status_pub.publish(status)
+        self._handle_backend_failures(failure_counts)
 
     def _refresh_diagnostics(self) -> None:
         self._last_diagnostics = self._backend.read_diagnostics()
+
+    def _handle_backend_failures(self, failure_counts: dict[int, int]) -> None:
+        if self._shutdown_requested or not failure_counts:
+            return
+
+        max_failures = max(failure_counts.values())
+        if max_failures >= self._shutdown_failure_threshold:
+            self._shutdown_requested = True
+            self.get_logger().error(
+                "DYNAMIXEL failure threshold reached; stopping motor node "
+                f"(max failures={max_failures}, threshold="
+                f"{self._shutdown_failure_threshold})"
+            )
+            try:
+                self._backend.stop()
+            except RuntimeError as exc:
+                self.get_logger().error(f"Failed to stop DYNAMIXEL backend: {exc}")
+            self._torque_enabled = False
+            self._stopped = True
+            rclpy.shutdown()
+            return
+
+        if max_failures >= self._reconnect_failure_threshold:
+            self.get_logger().warn(
+                "DYNAMIXEL failure threshold reached; attempting reconnect "
+                f"(max failures={max_failures}, threshold="
+                f"{self._reconnect_failure_threshold})"
+            )
+            self._connected = self._backend.reconnect()
+            if self._connected:
+                self.get_logger().info("DYNAMIXEL backend reconnected")
+            else:
+                self.get_logger().error("DYNAMIXEL backend reconnect failed")
 
     def _read_current_position_diagnostics(self) -> list[MotorDiagnostic]:
         values = self._backend.read_diagnostic_field("position")
