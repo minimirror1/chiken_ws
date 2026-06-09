@@ -251,6 +251,7 @@ class WebBridgeNode(Node):
         self.declare_parameter("namespace", "/animatronic")
         self.declare_parameter("web.host", "0.0.0.0")
         self.declare_parameter("web.port", 18080)
+        self.declare_parameter("web.status_rate_hz", 20.0)
         self.declare_parameter("password", "")
         default_patterns = str(Path(get_package_share_directory("animatronic_web")) / "patterns")
         self.declare_parameter("pattern_dir", default_patterns)
@@ -917,10 +918,12 @@ def create_app(node: WebBridgeNode) -> FastAPI:
         if node.password and password != node.password:
             await websocket.close(code=1008)
             return
+        status_rate_hz = float(node.get_parameter("web.status_rate_hz").value)
+        status_period = 1.0 / max(status_rate_hz, 1.0)
         try:
             while True:
                 await websocket.send_json(node.snapshot())
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(status_period)
         except WebSocketDisconnect:
             return
 
