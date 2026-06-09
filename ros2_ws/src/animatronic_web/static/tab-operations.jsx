@@ -61,7 +61,7 @@ function TabOperations() {
       {/* ---- CENTER : mini viewer + motor summary ---- */}
       <div className="col" style={{ minHeight: 0 }}>
         <Panel title="현재 자세" accent="POSE" ticked className="flex1" bodyClass="pad-0" sub="drag · 회전 / scroll · 확대">
-          <ViewerFrame interactive autoRotate label="CURRENT POSE" />
+          <ViewerFrame getJoints={() => s.actualJoints || s.joints} interactive autoRotate label="CURRENT POSE" />
         </Panel>
         <Panel title="모터 상태 요약" accent="MOTORS" right={<span className="mono" style={{ fontSize: 10, color: 'var(--tx-2)' }}>4 / 4 ONLINE</span>}>
           <table className="tbl">

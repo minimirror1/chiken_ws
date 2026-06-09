@@ -146,6 +146,7 @@ const Store = {
     motors: initMotors(),
     motorConfig: DEFAULT_MOTOR_CONFIG,
     motorConfigPath: '',
+    motorConfigLoaded: false,
     motorSynced: false,
     targetSyncedFromActual: false,
     userCommandedPose: false,
@@ -327,6 +328,22 @@ window.RosBridge = (function() {
     const j = JOINTS.find(x => x.id === jid);
     return j ? Math.max(-100, Math.min(100, Math.round(deg / j.max * 100))) : 0;
   };
+  const clampNormalized = v => Math.max(-100, Math.min(100, v));
+  const jointDegToNormalized = (jid, deg) => {
+    const config = (Store.state.motorConfig || []).find(x => x.joint_name === jid);
+    if (!config) return DEG_TO_VAL(jid, deg);
+
+    const minAngle = Number(config.min_angle_deg);
+    const homeAngle = Number(config.home_angle_deg);
+    const maxAngle = Number(config.max_angle_deg);
+    if (!Number.isFinite(minAngle) || !Number.isFinite(homeAngle) || !Number.isFinite(maxAngle)) {
+      return DEG_TO_VAL(jid, deg);
+    }
+
+    const span = deg >= 0 ? (maxAngle - homeAngle) : (homeAngle - minAngle);
+    if (!span) return DEG_TO_VAL(jid, deg);
+    return clampNormalized((deg / span) * 100);
+  };
 
   let ws = null;
   const bridge = {
@@ -344,7 +361,7 @@ window.RosBridge = (function() {
       ws.onclose = () => {
         bridge.rosMode = false;
         Store.set({ rosConnected: false });
-        setTimeout(() => bridge.connect(), 3000);
+        setTimeout(() => bridge.connectWithMotorConfig(), 3000);
       };
       ws.onerror = () => {};
       ws.onmessage = (e) => {
@@ -362,7 +379,7 @@ window.RosBridge = (function() {
           const pos = data.joint_states.position && data.joint_states.position[i];
           if (pos !== undefined) {
             const deg = pos * 180 / Math.PI;
-            actualJoints[name] = DEG_TO_VAL(name, deg);
+            actualJoints[name] = jointDegToNormalized(name, deg);
           }
         });
         patch.actualJoints = actualJoints;
@@ -490,6 +507,28 @@ window.RosBridge = (function() {
       return data;
     },
 
+    async loadMotorConfig() {
+      try {
+        const data = await this.api('/api/motor-config');
+        if (Array.isArray(data.calibrations)) {
+          Store.set({
+            motorConfig: data.calibrations,
+            motorConfigPath: data.path || '',
+            motorConfigLoaded: true,
+          });
+          return true;
+        }
+      } catch (err) {}
+      Store.set({ motorConfigLoaded: false });
+      Store.pushLog('warn', 'bridge', '모터 보정값 로드 실패 — 기본 보정값으로 표시');
+      return false;
+    },
+
+    async connectWithMotorConfig() {
+      await this.loadMotorConfig();
+      this.connect();
+    },
+
     // 관절 위치 명령 (degrees)
     sendJoints(joints) {
       const positions = {};
@@ -573,7 +612,7 @@ window.RosBridge = (function() {
     fetch('/api/status').then(r => {
       if (r.ok) {
         Store.pushLog('info', 'bridge', 'ROS 서버 감지됨 — WebSocket 연결 시도');
-        bridge.connect();
+        bridge.connectWithMotorConfig();
       }
     }).catch(() => {
       Store.pushLog('info', 'bridge', '데모 모드 — ROS 서버 없음, 시뮬레이션 실행 중');
