@@ -147,24 +147,45 @@ def motor_config_path() -> Path:
     return Path(get_package_share_directory("chicken_bringup")) / "config" / "motors.yaml"
 
 
-def source_motor_config_path() -> Path | None:
+def motor_config_example_path() -> Path:
+    return (
+        Path(get_package_share_directory("chicken_bringup"))
+        / "config"
+        / "motors.example.yaml"
+    )
+
+
+def source_motor_config_path(filename: str = "motors.yaml") -> Path | None:
     candidates = [Path.cwd(), *Path(__file__).resolve().parents]
     for base in candidates:
-        path = base / "src" / "chicken_bringup" / "config" / "motors.yaml"
-        if path.exists():
-            return path
+        config_dir = base / "src" / "chicken_bringup" / "config"
+        if config_dir.exists():
+            path = config_dir / filename
+            if path.exists():
+                return path
+            return None
     return None
 
 
 def motor_config_read_path() -> Path:
-    return source_motor_config_path() or motor_config_path()
+    for path in (
+        source_motor_config_path("motors.yaml"),
+        motor_config_path(),
+        source_motor_config_path("motors.example.yaml"),
+        motor_config_example_path(),
+    ):
+        if path is not None and path.exists():
+            return path
+    return motor_config_path()
 
 
 def motor_config_write_paths() -> list[Path]:
     paths = [motor_config_path()]
-    source_path = source_motor_config_path()
-    if source_path is not None and source_path not in paths:
-        paths.append(source_path)
+    source_example = source_motor_config_path("motors.example.yaml")
+    if source_example is not None:
+        source_path = source_example.with_name("motors.yaml")
+        if source_path not in paths:
+            paths.append(source_path)
     return paths
 
 
@@ -195,19 +216,20 @@ def read_motor_calibrations(path: Path) -> list[dict[str, Any]]:
 
 
 def write_motor_calibrations(path: Path, document: MotorCalibrationDocument) -> None:
-    data = {
-        "/**": {
-            "ros__parameters": {
-                "mock_mode": False,
-                "port": "/dev/ttyUSB0",
-                "baudrate": 1000000,
-                "protocol_version": 2.0,
-                "joint_names": [item.joint_name for item in document.calibrations],
-                "joints": {},
-            }
-        }
-    }
-    joints = data["/**"]["ros__parameters"]["joints"]
+    if path.exists():
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    else:
+        read_path = motor_config_read_path()
+        data = (
+            yaml.safe_load(read_path.read_text(encoding="utf-8"))
+            if read_path.exists()
+            else {}
+        ) or {}
+    data.setdefault("/**", {}).setdefault("ros__parameters", {})
+    params = data["/**"]["ros__parameters"]
+    params["joint_names"] = [item.joint_name for item in document.calibrations]
+    params["joints"] = {}
+    joints = params["joints"]
     for item in document.calibrations:
         joints[item.joint_name] = {
             "id": int(item.id),

@@ -1,10 +1,26 @@
 import asyncio
+import os
+from pathlib import Path
+import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+import yaml
 
 from action_msgs.msg import GoalStatus
 from animatronic_interfaces.msg import MotionStatus
-from animatronic_web.web_server_node import MotionRunRequest, MotionSyncRequest, WebBridgeNode, idle_operation_status
+from animatronic_web import web_server_node
+from animatronic_web.web_server_node import (
+    MotorCalibrationDocument,
+    MotorCalibrationItem,
+    MotionRunRequest,
+    MotionSyncRequest,
+    WebBridgeNode,
+    idle_operation_status,
+    motor_config_read_path,
+    motor_config_write_paths,
+    write_motor_calibrations,
+)
 
 
 def motor_positions_result(result):
@@ -244,6 +260,85 @@ class WebBridgeMotionSyncTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(sync_published[-1][1], "web:motion_sync")
         self.assertAlmostEqual(sync_published[-1][0]["lower_pitch"], run_first_lower_pitch)
+
+
+class MotorConfigWriteTest(unittest.TestCase):
+    def test_motor_config_read_path_falls_back_to_example(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_config = root / "src" / "chicken_bringup" / "config"
+            install_config = root / "install" / "chicken_bringup" / "config"
+            source_config.mkdir(parents=True)
+            install_config.mkdir(parents=True)
+            example_path = source_config / "motors.example.yaml"
+            example_path.write_text("/**:\n  ros__parameters: {}\n", encoding="utf-8")
+            previous_cwd = Path.cwd()
+            os.chdir(root)
+            self.addCleanup(os.chdir, previous_cwd)
+
+            with patch.object(
+                web_server_node,
+                "get_package_share_directory",
+                return_value=str(root / "install" / "chicken_bringup"),
+            ):
+                self.assertEqual(motor_config_read_path(), example_path)
+                self.assertEqual(
+                    motor_config_write_paths(),
+                    [
+                        install_config / "motors.yaml",
+                        source_config / "motors.yaml",
+                    ],
+                )
+
+    def test_write_motor_calibrations_preserves_runtime_parameters(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "motors.yaml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "/**": {
+                            "ros__parameters": {
+                                "mock_mode": False,
+                                "port": "/dev/ttyUSB0",
+                                "baudrate": 1000000,
+                                "protocol_version": 2.0,
+                                "diagnostics_publish_rate_hz": 20.0,
+                                "command_write_rate_hz": 50.0,
+                                "joint_names": ["old_joint"],
+                                "joints": {"old_joint": {"id": 99}},
+                            }
+                        }
+                    },
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+            document = MotorCalibrationDocument(
+                calibrations=[
+                    MotorCalibrationItem(
+                        joint_name="lower_pitch",
+                        id=1,
+                        model="XM430-W350-R",
+                        raw_0_percent=1,
+                        raw_home=2048,
+                        raw_100_percent=4095,
+                        min_angle_deg=0.0,
+                        home_angle_deg=180.0,
+                        max_angle_deg=360.0,
+                    )
+                ]
+            )
+
+            write_motor_calibrations(path, document)
+
+            params = yaml.safe_load(path.read_text(encoding="utf-8"))["/**"][
+                "ros__parameters"
+            ]
+            self.assertEqual(params["baudrate"], 1000000)
+            self.assertEqual(params["diagnostics_publish_rate_hz"], 20.0)
+            self.assertEqual(params["command_write_rate_hz"], 50.0)
+            self.assertEqual(params["joint_names"], ["lower_pitch"])
+            self.assertEqual(set(params["joints"]), {"lower_pitch"})
 
 
 if __name__ == "__main__":

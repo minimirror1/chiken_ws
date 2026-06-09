@@ -2,8 +2,10 @@
 
 ROS2 `rclpy` package for the `/animatronic` DYNAMIXEL motor node.
 
-The default configuration runs in `mock_mode`, so it can publish `/joint_states`,
-`/animatronic/motor/status`, and fake diagnostics without motor hardware.
+The motor node defaults to `mock_mode` when no parameter file is supplied. The
+robot launch configuration is kept in `chicken_bringup/config/motors.yaml`, with
+`chicken_bringup/config/motors.example.yaml` used as a fallback when the local
+file does not exist.
 
 ## DYNAMIXEL backend connection point
 
@@ -22,5 +24,5 @@ unchanged.
 ```bash
 cd /home/hifiberry/Desktop/shs_ws_chiken/ros2_ws
 /home/hifiberry/.pixi/bin/pixi run colcon build --packages-select animatronic_dynamixel
-/home/hifiberry/.pixi/bin/pixi run bash -lc 'source install/setup.bash && ros2 run animatronic_dynamixel motor_node --ros-args --params-file src/animatronic_dynamixel/config/motor_node.yaml'
+/home/hifiberry/.pixi/bin/pixi run bash -lc 'source install/setup.bash && ros2 launch chicken_bringup control.launch.py'
 ```

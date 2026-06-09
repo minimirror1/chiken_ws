@@ -830,11 +830,11 @@ class MotorNode(Node):
     def _declare_parameters(self) -> None:
         self.declare_parameter("namespace", "/animatronic")
         self.declare_parameter("port", "/dev/ttyUSB0")
-        self.declare_parameter("baudrate", 57600)
+        self.declare_parameter("baudrate", 1000000)
         self.declare_parameter("protocol_version", 2.0)
         self.declare_parameter("mock_mode", True)
         self.declare_parameter("state_publish_rate_hz", 20.0)
-        self.declare_parameter("diagnostics_publish_rate_hz", 2.0)
+        self.declare_parameter("diagnostics_publish_rate_hz", 20.0)
         self.declare_parameter("command_write_rate_hz", 50.0)
         self.declare_parameter("joint_names", list(DEFAULT_JOINT_NAMES))
 
