@@ -4,6 +4,7 @@
 
 function MotorCard({ id, m }) {
   const hot = m.temp > 50, warm = m.temp > 45;
+  const effort = motorEffortView(m);
   return (
     <div className="panel" style={{ background: 'var(--bg-2)' }}>
       <div className="panel-h" style={{ padding: '7px 11px' }}>
@@ -20,8 +21,8 @@ function MotorCard({ id, m }) {
           <MBar value={m.temp} max={70} kind={hot ? 'err' : warm ? 'warn' : 'ok'} />
         </div>
         <div style={{ marginBottom: 7 }}>
-          <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--tx-3)', marginBottom: 3 }}><span>LOAD</span><span style={{ color: m.load > 60 ? 'var(--warn)' : 'var(--tx-1)' }}>{m.load.toFixed(0)}%</span></div>
-          <MBar value={m.load} max={100} />
+          <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--tx-3)', marginBottom: 3 }}><span>{effort.label}</span><span style={{ color: effort.color }}>{effort.text}</span></div>
+          {effort.signed ? <SignedMBar value={effort.value} max={effort.max} kind={effort.kind} /> : <MBar value={effort.value} max={effort.max} kind={effort.kind} />}
         </div>
         <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--tx-3)' }}>
           <span>VOLT {m.volt.toFixed(1)}V</span><span>{m.model}</span>

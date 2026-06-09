@@ -13,8 +13,6 @@ function TabOperations() {
     { v: 'stop', kr: '정지', en: 'STOP' },
   ];
   const avgTemp = (JOINT_IDS.reduce((a, id) => a + s.motors[id].temp, 0) / 4).toFixed(0);
-  const maxLoad = Math.max(...JOINT_IDS.map(id => s.motors[id].load));
-
   return (
     <div className="pad" style={{ height: '100%', display: 'grid', gridTemplateColumns: '320px 1fr 360px', gap: 12, gridTemplateRows: '100%' }}>
 
@@ -67,17 +65,18 @@ function TabOperations() {
         </Panel>
         <Panel title="모터 상태 요약" accent="MOTORS" right={<span className="mono" style={{ fontSize: 10, color: 'var(--tx-2)' }}>4 / 4 ONLINE</span>}>
           <table className="tbl">
-            <thead><tr><th>JOINT</th><th className="num">POS</th><th className="num">TEMP</th><th className="num">LOAD</th><th className="num">VOLT</th><th>TQ</th></tr></thead>
+            <thead><tr><th>JOINT</th><th className="num">POS</th><th className="num">TEMP</th><th className="num">EFFORT</th><th className="num">VOLT</th><th>TQ</th></tr></thead>
             <tbody>
               {JOINT_IDS.map(id => {
                 const m = s.motors[id];
                 const hot = m.temp > 50, warm = m.temp > 45;
+                const effort = motorEffortView(m);
                 return (
                   <tr key={id}>
                     <td className="name" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{id}</td>
                     <td className="num">{m.pos.toFixed(1)}°</td>
                     <td className="num" style={{ color: hot ? 'var(--err)' : warm ? 'var(--warn)' : 'var(--tx-1)' }}>{m.temp.toFixed(0)}°C</td>
-                    <td className="num" style={{ color: m.load > 60 ? 'var(--warn)' : 'var(--tx-1)' }}>{m.load.toFixed(0)}%</td>
+                    <td className="num" style={{ color: effort.color }}>{effort.text}</td>
                     <td className="num">{m.volt.toFixed(1)}V</td>
                     <td><Dot kind={m.torque ? 'ok' : 'off'} /></td>
                   </tr>

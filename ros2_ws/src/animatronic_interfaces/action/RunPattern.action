@@ -1,6 +1,8 @@
 string pattern_name
+string pattern_yaml
 bool preview_only
 bool allow_interrupt
+uint32 start_time_ms
 ---
 bool success
 string message

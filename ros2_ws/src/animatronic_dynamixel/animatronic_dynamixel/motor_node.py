@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import pi
+import threading
 from typing import Dict, Iterable, List
 
 import rclpy
@@ -10,9 +11,11 @@ from animatronic_interfaces.msg import (
     MotorCalibration,
     MotorDiagnostic,
     MotorDiagnosticsArray,
+    MotorJointPosition,
     MotorStatus,
 )
 from animatronic_interfaces.srv import MotorCommand, SetMotorCalibration
+from animatronic_interfaces.srv import GetMotorPositions
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -20,13 +23,20 @@ from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 
 try:
+    from serial import SerialException
+except ImportError:  # pragma: no cover - exercised only without pyserial installed.
+    SerialException = OSError
+
+try:
     from dynamixel_sdk import COMM_SUCCESS
+    from dynamixel_sdk import GroupBulkRead
     from dynamixel_sdk import GroupSyncRead
     from dynamixel_sdk import GroupSyncWrite
     from dynamixel_sdk import PacketHandler
     from dynamixel_sdk import PortHandler
 except ImportError:  # pragma: no cover - exercised only without SDK installed.
     COMM_SUCCESS = 0
+    GroupBulkRead = None
     GroupSyncRead = None
     GroupSyncWrite = None
     PacketHandler = None
@@ -35,6 +45,7 @@ except ImportError:  # pragma: no cover - exercised only without SDK installed.
 
 DEFAULT_JOINT_NAMES = ("lower_yaw", "lower_pitch", "upper_yaw", "upper_pitch")
 FAILURE_BLOCK_THRESHOLD = 5
+DYNAMIXEL_IO_ERRORS = (OSError, SerialException)
 
 
 @dataclass(frozen=True)
@@ -55,6 +66,8 @@ class ControlTableProfile:
     temperature_len: int
     load_addr: int
     load_len: int
+    diagnostic_block_addr: int
+    diagnostic_block_len: int
     load_signed: bool = False
     load_scale: float = 1.0
 
@@ -77,6 +90,8 @@ PROFILES = {
         temperature_len=1,
         load_addr=126,  # Present Current. Stored in generic load field.
         load_len=2,
+        diagnostic_block_addr=126,
+        diagnostic_block_len=21,
         load_signed=True,
         load_scale=2.69,
     ),
@@ -97,6 +112,8 @@ PROFILES = {
         temperature_len=1,
         load_addr=126,
         load_len=2,
+        diagnostic_block_addr=126,
+        diagnostic_block_len=21,
         load_signed=True,
         load_scale=2.69,
     ),
@@ -117,10 +134,14 @@ PROFILES = {
         temperature_len=1,
         load_addr=41,
         load_len=2,
+        diagnostic_block_addr=37,
+        diagnostic_block_len=10,
         load_signed=False,
         load_scale=1.0 / 1023.0,
     ),
 }
+
+DIAGNOSTIC_FIELDS = ("position", "voltage", "temperature", "load")
 
 
 @dataclass(frozen=True)
@@ -149,6 +170,13 @@ class DynamixelBackend:
     def connect(self) -> bool:
         raise NotImplementedError
 
+    def disconnect(self) -> None:
+        pass
+
+    def reconnect(self) -> bool:
+        self.disconnect()
+        return self.connect()
+
     def set_torque_enabled(self, enabled: bool) -> None:
         raise NotImplementedError
 
@@ -160,6 +188,10 @@ class DynamixelBackend:
 
     def read_diagnostics(self) -> List[MotorDiagnostic]:
         raise NotImplementedError
+
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        del field
+        return None
 
     def home(self) -> None:
         raise NotImplementedError
@@ -196,6 +228,9 @@ class MockDynamixelBackend(DynamixelBackend):
         self.connected = True
         return True
 
+    def disconnect(self) -> None:
+        self.connected = False
+
     def set_torque_enabled(self, enabled: bool) -> None:
         for state in self._states.values():
             state.torque_enabled = enabled
@@ -230,6 +265,18 @@ class MockDynamixelBackend(DynamixelBackend):
             diagnostic.error_message = state.error_message
             diagnostics.append(diagnostic)
         return diagnostics
+
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        diagnostics = self.read_diagnostics()
+        if field == "position":
+            return {diagnostic.id: diagnostic.raw_position for diagnostic in diagnostics}
+        if field == "voltage":
+            return {diagnostic.id: diagnostic.voltage_v for diagnostic in diagnostics}
+        if field == "temperature":
+            return {diagnostic.id: diagnostic.temperature_c for diagnostic in diagnostics}
+        if field == "load":
+            return {diagnostic.id: diagnostic.load for diagnostic in diagnostics}
+        raise ValueError(f"Unsupported diagnostic field: {field}")
 
     def home(self) -> None:
         self.write_joint_targets(
@@ -267,7 +314,7 @@ class RealDynamixelBackend(DynamixelBackend):
         protocol_version: float,
         motor_configs: Iterable[MotorConfig],
     ) -> None:
-        if PortHandler is None or PacketHandler is None:
+        if PortHandler is None or PacketHandler is None or GroupBulkRead is None:
             raise RuntimeError("dynamixel-sdk is not installed in this environment")
 
         self.port = port
@@ -286,10 +333,21 @@ class RealDynamixelBackend(DynamixelBackend):
         }
 
     def connect(self) -> bool:
-        if not self._port_handler.openPort():
+        self._active_ids.clear()
+        try:
+            opened = self._port_handler.openPort()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"open DYNAMIXEL port: {exc}")
+            return False
+        if not opened:
             self._mark_all_failed(f"failed to open DYNAMIXEL port: {self.port}")
             return False
-        if not self._port_handler.setBaudRate(self.baudrate):
+        try:
+            baudrate_set = self._port_handler.setBaudRate(self.baudrate)
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"set DYNAMIXEL baudrate: {exc}")
+            return False
+        if not baudrate_set:
             self._mark_all_failed(f"failed to set DYNAMIXEL baudrate: {self.baudrate}")
             return False
 
@@ -297,14 +355,32 @@ class RealDynamixelBackend(DynamixelBackend):
             self._ping(config.motor_id)
         return bool(self._active_ids)
 
+    def disconnect(self) -> None:
+        try:
+            self._port_handler.closePort()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._mark_all_failed(f"close DYNAMIXEL port: {exc}")
+
+    def reconnect(self) -> bool:
+        self.disconnect()
+        self._port_handler = PortHandler(self.port)
+        connected = self.connect()
+        if connected:
+            self._clear_failures()
+        return connected
+
     def set_torque_enabled(self, enabled: bool) -> None:
         for config in self._configs:
-            result, error = self._packet_handler.write1ByteTxRx(
-                self._port_handler,
-                config.motor_id,
-                config.profile.torque_enable_addr,
-                1 if enabled else 0,
-            )
+            try:
+                result, error = self._packet_handler.write1ByteTxRx(
+                    self._port_handler,
+                    config.motor_id,
+                    config.profile.torque_enable_addr,
+                    1 if enabled else 0,
+                )
+            except DYNAMIXEL_IO_ERRORS as exc:
+                self._increment_failure(config.motor_id, f"torque enable: {exc}")
+                continue
             self._record_comm(config.motor_id, result, error, "torque enable")
             self._torque_enabled_by_id[config.motor_id] = enabled
 
@@ -312,12 +388,16 @@ class RealDynamixelBackend(DynamixelBackend):
         config = self._config_by_id.get(motor_id)
         if config is None:
             return False
-        result, error = self._packet_handler.write1ByteTxRx(
-            self._port_handler,
-            config.motor_id,
-            config.profile.torque_enable_addr,
-            1 if enabled else 0,
-        )
+        try:
+            result, error = self._packet_handler.write1ByteTxRx(
+                self._port_handler,
+                config.motor_id,
+                config.profile.torque_enable_addr,
+                1 if enabled else 0,
+            )
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(config.motor_id, f"torque enable: {exc}")
+            return False
         ok = self._record_comm(config.motor_id, result, error, "torque enable")
         if ok:
             self._torque_enabled_by_id[config.motor_id] = enabled
@@ -337,10 +417,11 @@ class RealDynamixelBackend(DynamixelBackend):
             self._sync_write_goal_positions(profile, group_items)
 
     def read_diagnostics(self) -> List[MotorDiagnostic]:
-        positions = self._read_profile_field("position")
-        voltages = self._read_profile_field("voltage")
-        temperatures = self._read_profile_field("temperature")
-        loads = self._read_profile_field("load")
+        values = self._read_bulk_diagnostic_values()
+        positions = values["position"]
+        voltages = values["voltage"]
+        temperatures = values["temperature"]
+        loads = values["load"]
 
         diagnostics = []
         for config in self._configs:
@@ -363,6 +444,11 @@ class RealDynamixelBackend(DynamixelBackend):
             diagnostics.append(diagnostic)
         return diagnostics
 
+    def read_diagnostic_field(self, field: str) -> dict[int, float | int] | None:
+        if field not in DIAGNOSTIC_FIELDS:
+            raise ValueError(f"Unsupported diagnostic field: {field}")
+        return self._read_bulk_diagnostic_values()[field]
+
     def home(self) -> None:
         self.write_joint_targets(
             {config.joint_name: config.home_raw for config in self._configs}
@@ -375,7 +461,11 @@ class RealDynamixelBackend(DynamixelBackend):
         config = self._config_by_id.get(motor_id)
         if config is None:
             return False
-        result, error = self._packet_handler.reboot(self._port_handler, motor_id)
+        try:
+            result, error = self._packet_handler.reboot(self._port_handler, motor_id)
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(motor_id, f"reboot: {exc}")
+            return False
         self._record_comm(motor_id, result, error, "reboot")
         if result != COMM_SUCCESS or error:
             return False
@@ -412,10 +502,15 @@ class RealDynamixelBackend(DynamixelBackend):
         }
 
     def _ping(self, motor_id: int) -> bool:
-        _model_number, result, error = self._packet_handler.ping(
-            self._port_handler,
-            motor_id,
-        )
+        try:
+            _model_number, result, error = self._packet_handler.ping(
+                self._port_handler,
+                motor_id,
+            )
+        except DYNAMIXEL_IO_ERRORS as exc:
+            self._increment_failure(motor_id, f"ping: {exc}")
+            self._active_ids.discard(motor_id)
+            return False
         ok = self._record_comm(motor_id, result, error, "ping")
         if ok:
             self._active_ids.add(motor_id)
@@ -449,7 +544,16 @@ class RealDynamixelBackend(DynamixelBackend):
             group.clearParam()
             return
 
-        result = group.txPacket()
+        try:
+            result = group.txPacket()
+        except DYNAMIXEL_IO_ERRORS as exc:
+            for config in added:
+                self._increment_failure(
+                    config.motor_id,
+                    f"sync write goal position: {exc}",
+                )
+            group.clearParam()
+            return
         for config in added:
             self._record_comm(config.motor_id, result, 0, "sync write goal position")
         group.clearParam()
@@ -475,7 +579,13 @@ class RealDynamixelBackend(DynamixelBackend):
                 group.clearParam()
                 continue
 
-            result = group.txRxPacket()
+            try:
+                result = group.txRxPacket()
+            except DYNAMIXEL_IO_ERRORS as exc:
+                for config in added:
+                    self._increment_failure(config.motor_id, f"sync read {field}: {exc}")
+                group.clearParam()
+                continue
             if result != COMM_SUCCESS:
                 for config in added:
                     self._record_comm(config.motor_id, result, 0, f"sync read {field}")
@@ -489,6 +599,73 @@ class RealDynamixelBackend(DynamixelBackend):
                 raw_value = int(group.getData(config.motor_id, address, length))
                 values[config.motor_id] = convert_profile_value(profile, field, raw_value)
                 self._decrement_failure(config.motor_id)
+            group.clearParam()
+        return values
+
+    def _read_bulk_diagnostic_values(self) -> dict[str, dict[int, float | int]]:
+        values: dict[str, dict[int, float | int]] = {
+            field: {} for field in DIAGNOSTIC_FIELDS
+        }
+        for profile, configs in group_configs_by_profile(self._configs).items():
+            group = GroupBulkRead(self._port_handler, self._packet_handler)
+            added: list[MotorConfig] = []
+            for config in configs:
+                if not group.addParam(
+                    config.motor_id,
+                    profile.diagnostic_block_addr,
+                    profile.diagnostic_block_len,
+                ):
+                    self._increment_failure(
+                        config.motor_id,
+                        "bulk read diagnostics addParam failed",
+                    )
+                    continue
+                added.append(config)
+
+            if not added:
+                group.clearParam()
+                continue
+
+            try:
+                result = group.txRxPacket()
+            except DYNAMIXEL_IO_ERRORS as exc:
+                for config in added:
+                    self._increment_failure(
+                        config.motor_id,
+                        f"bulk read diagnostics: {exc}",
+                    )
+                group.clearParam()
+                continue
+            if result != COMM_SUCCESS:
+                for config in added:
+                    self._record_comm(
+                        config.motor_id,
+                        result,
+                        0,
+                        "bulk read diagnostics",
+                    )
+                group.clearParam()
+                continue
+
+            for config in added:
+                motor_ok = True
+                for field in DIAGNOSTIC_FIELDS:
+                    address, length = sync_read_address(profile, field)
+                    if not group.isAvailable(config.motor_id, address, length):
+                        self._increment_failure(
+                            config.motor_id,
+                            f"bulk read {field} unavailable",
+                        )
+                        motor_ok = False
+                        continue
+                    raw_value = int(group.getData(config.motor_id, address, length))
+                    values[field][config.motor_id] = convert_profile_value(
+                        profile,
+                        field,
+                        raw_value,
+                    )
+                if motor_ok:
+                    self._decrement_failure(config.motor_id)
             group.clearParam()
         return values
 
@@ -518,6 +695,11 @@ class RealDynamixelBackend(DynamixelBackend):
     def _decrement_failure(self, motor_id: int) -> None:
         self._failure_counts[motor_id] = max(0, self._failure_counts.get(motor_id, 0) - 1)
         if self._failure_counts[motor_id] == 0:
+            self._last_errors[motor_id] = ""
+
+    def _clear_failures(self) -> None:
+        for motor_id in self._failure_counts:
+            self._failure_counts[motor_id] = 0
             self._last_errors[motor_id] = ""
 
     def _mark_all_failed(self, message: str) -> None:
@@ -597,6 +779,17 @@ def normalized_to_raw(normalized_value: float, config: MotorConfig) -> int:
     return int(round(config.home_raw + (normalized / 100.0) * span))
 
 
+def raw_to_normalized(raw_position: int, config: MotorConfig) -> float:
+    raw = clamp(int(raw_position), config.min_raw, config.max_raw)
+    if (raw - config.home_raw) * (config.max_raw - config.home_raw) >= 0:
+        span = config.max_raw - config.home_raw
+    else:
+        span = config.home_raw - config.min_raw
+    if span == 0:
+        return 0.0
+    return max(-100.0, min(100.0, ((raw - config.home_raw) / span) * 100.0))
+
+
 def raw_to_angle_deg(raw_position: int, config: MotorConfig) -> float:
     max_span = config.max_raw - config.home_raw
     min_span = config.min_raw - config.home_raw
@@ -655,6 +848,16 @@ class MotorNode(Node):
         self._torque_enabled = False
         self._last_diagnostics: List[MotorDiagnostic] = []
         self._stopped = False
+        self._shutdown_requested = False
+        self._reconnect_failure_threshold = int(
+            self.get_parameter("reconnect_failure_threshold").value
+        )
+        self._shutdown_failure_threshold = int(
+            self.get_parameter("shutdown_failure_threshold").value
+        )
+        self._target_lock = threading.Lock()
+        self._latest_targets: dict[str, int] = {}
+        self._target_dirty = False
 
         self.create_subscription(
             Bool,
@@ -684,6 +887,11 @@ class MotorNode(Node):
         self.create_service(Trigger, f"{namespace}/motor/home", self._on_home)
         self.create_service(Trigger, f"{namespace}/motor/stop", self._on_stop)
         self.create_service(
+            GetMotorPositions,
+            f"{namespace}/motor/read_positions",
+            self._on_read_positions,
+        )
+        self.create_service(
             MotorCommand,
             f"{namespace}/motor/reboot",
             self._on_reboot,
@@ -703,7 +911,9 @@ class MotorNode(Node):
         diagnostics_period = 1.0 / float(
             self.get_parameter("diagnostics_publish_rate_hz").value
         )
+        command_period = 1.0 / float(self.get_parameter("command_write_rate_hz").value)
         self.create_timer(state_period, self._publish_joint_states)
+        self.create_timer(command_period, self._write_latest_targets)
         self.create_timer(diagnostics_period, self._publish_diagnostics_and_status)
 
         mode = "mock" if mock_mode else "real"
@@ -714,11 +924,14 @@ class MotorNode(Node):
     def _declare_parameters(self) -> None:
         self.declare_parameter("namespace", "/animatronic")
         self.declare_parameter("port", "/dev/ttyUSB0")
-        self.declare_parameter("baudrate", 57600)
+        self.declare_parameter("baudrate", 1000000)
         self.declare_parameter("protocol_version", 2.0)
         self.declare_parameter("mock_mode", True)
         self.declare_parameter("state_publish_rate_hz", 20.0)
-        self.declare_parameter("diagnostics_publish_rate_hz", 2.0)
+        self.declare_parameter("diagnostics_publish_rate_hz", 20.0)
+        self.declare_parameter("command_write_rate_hz", 50.0)
+        self.declare_parameter("reconnect_failure_threshold", 5)
+        self.declare_parameter("shutdown_failure_threshold", 10)
         self.declare_parameter("joint_names", list(DEFAULT_JOINT_NAMES))
 
         self.declare_parameter("motor_ids", [1, 2, 3, 4])
@@ -829,6 +1042,7 @@ class MotorNode(Node):
     def _on_target_joints(self, msg) -> None:
         targets = {}
         raw_mode = getattr(msg, "source", "") == "web:motor_raw"
+        joint_deg_mode = getattr(msg, "source", "") == "web:motor_joint_deg"
         for joint in msg.joints:
             config = self._config_by_joint.get(joint.name)
             if config is None:
@@ -836,12 +1050,28 @@ class MotorNode(Node):
                 continue
             if raw_mode:
                 raw_position = int(joint.raw_position)
+            elif joint_deg_mode:
+                raw_position = angle_to_raw(
+                    config.home_angle_deg + float(joint.angle_deg),
+                    config,
+                )
             else:
                 raw_position = normalized_to_raw(joint.normalized_value, config)
             targets[joint.name] = clamp(raw_position, config.min_raw, config.max_raw)
 
         if not targets:
             return
+
+        with self._target_lock:
+            self._latest_targets = targets
+            self._target_dirty = True
+
+    def _write_latest_targets(self) -> None:
+        with self._target_lock:
+            if not self._target_dirty:
+                return
+            targets = dict(self._latest_targets)
+            self._target_dirty = False
 
         try:
             self._backend.write_joint_targets(targets)
@@ -872,6 +1102,32 @@ class MotorNode(Node):
         except RuntimeError as exc:
             response.success = False
             response.message = str(exc)
+        return response
+
+    def _on_read_positions(
+        self,
+        request: GetMotorPositions.Request,
+        response: GetMotorPositions.Response,
+    ):
+        del request
+        try:
+            diagnostics = self._read_current_position_diagnostics()
+        except RuntimeError as exc:
+            response.success = False
+            response.message = str(exc)
+            return response
+
+        response.stamp = self.get_clock().now().to_msg()
+        response.diagnostics = diagnostics
+        response.joint_positions = self._joint_positions_from_diagnostics(diagnostics)
+        response.success = bool(diagnostics)
+        response.message = (
+            f"read {len(diagnostics)} motor positions"
+            if diagnostics
+            else "no motor positions read"
+        )
+        if diagnostics:
+            self._merge_position_diagnostics(diagnostics)
         return response
 
     def _on_reboot(
@@ -1018,7 +1274,7 @@ class MotorNode(Node):
 
     def _publish_diagnostics_and_status(self) -> None:
         try:
-            self._last_diagnostics = self._backend.read_diagnostics()
+            self._refresh_diagnostics()
         except RuntimeError as exc:
             self.get_logger().error(str(exc))
             self._last_diagnostics = []
@@ -1063,6 +1319,111 @@ class MotorNode(Node):
             status.status = MotorStatus.OK
             status.message = "OK"
         self._status_pub.publish(status)
+        self._handle_backend_failures(failure_counts)
+
+    def _refresh_diagnostics(self) -> None:
+        self._last_diagnostics = self._backend.read_diagnostics()
+
+    def _handle_backend_failures(self, failure_counts: dict[int, int]) -> None:
+        if self._shutdown_requested or not failure_counts:
+            return
+
+        max_failures = max(failure_counts.values())
+        if max_failures >= self._shutdown_failure_threshold:
+            self._shutdown_requested = True
+            self.get_logger().error(
+                "DYNAMIXEL failure threshold reached; stopping motor node "
+                f"(max failures={max_failures}, threshold="
+                f"{self._shutdown_failure_threshold})"
+            )
+            try:
+                self._backend.stop()
+            except RuntimeError as exc:
+                self.get_logger().error(f"Failed to stop DYNAMIXEL backend: {exc}")
+            self._torque_enabled = False
+            self._stopped = True
+            rclpy.shutdown()
+            return
+
+        if max_failures >= self._reconnect_failure_threshold:
+            self.get_logger().warn(
+                "DYNAMIXEL failure threshold reached; attempting reconnect "
+                f"(max failures={max_failures}, threshold="
+                f"{self._reconnect_failure_threshold})"
+            )
+            self._connected = self._backend.reconnect()
+            if self._connected:
+                self.get_logger().info("DYNAMIXEL backend reconnected")
+            else:
+                self.get_logger().error("DYNAMIXEL backend reconnect failed")
+
+    def _read_current_position_diagnostics(self) -> list[MotorDiagnostic]:
+        values = self._backend.read_diagnostic_field("position")
+        if values is None:
+            diagnostics = self._backend.read_diagnostics()
+            return [diagnostic for diagnostic in diagnostics if diagnostic.joint_name]
+
+        failure_counts = self._backend.failure_counts()
+        torque_by_id = self._backend.torque_enabled_by_id()
+        diagnostics: list[MotorDiagnostic] = []
+        for config in self._motor_configs:
+            if config.motor_id not in values:
+                continue
+            diagnostic = MotorDiagnostic()
+            diagnostic.id = config.motor_id
+            diagnostic.joint_name = config.joint_name
+            diagnostic.model = config.model
+            diagnostic.raw_position = int(values[config.motor_id])
+            diagnostic.angle_deg = raw_to_angle_deg(diagnostic.raw_position, config)
+            diagnostic.torque_enabled = torque_by_id.get(config.motor_id, False)
+            diagnostic.error_code = min(failure_counts.get(config.motor_id, 0), 255)
+            diagnostics.append(diagnostic)
+        return diagnostics
+
+    def _joint_positions_from_diagnostics(
+        self,
+        diagnostics: list[MotorDiagnostic],
+    ) -> list[MotorJointPosition]:
+        configs_by_joint = {config.joint_name: config for config in self._motor_configs}
+        positions: list[MotorJointPosition] = []
+        for diagnostic in diagnostics:
+            config = configs_by_joint.get(diagnostic.joint_name)
+            if config is None:
+                continue
+            position = MotorJointPosition()
+            position.joint_name = diagnostic.joint_name
+            position.raw_position = int(diagnostic.raw_position)
+            position.joint_angle_deg = raw_to_joint_deg(
+                diagnostic.raw_position,
+                config,
+            )
+            position.normalized_value = raw_to_normalized(
+                diagnostic.raw_position,
+                config,
+            )
+            positions.append(position)
+        return positions
+
+    def _merge_position_diagnostics(self, diagnostics: list[MotorDiagnostic]) -> None:
+        fresh_by_joint = {diagnostic.joint_name: diagnostic for diagnostic in diagnostics}
+        previous_by_joint = {
+            diagnostic.joint_name: diagnostic for diagnostic in self._last_diagnostics
+        }
+        merged: list[MotorDiagnostic] = []
+        for config in self._motor_configs:
+            fresh = fresh_by_joint.get(config.joint_name)
+            previous = previous_by_joint.get(config.joint_name)
+            if fresh is None:
+                if previous is not None:
+                    merged.append(previous)
+                continue
+            if previous is not None:
+                fresh.voltage_v = previous.voltage_v
+                fresh.temperature_c = previous.temperature_c
+                fresh.load = previous.load
+                fresh.error_message = previous.error_message
+            merged.append(fresh)
+        self._last_diagnostics = merged
 
     def _publish_joint_states(self) -> None:
         diagnostics_by_joint = {

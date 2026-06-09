@@ -354,6 +354,18 @@ body {
 .mbar.ok > i { background: var(--ok); }
 .mbar.warn > i { background: var(--warn); }
 .mbar.err > i { background: var(--err); }
+.mbar.signed { position: relative; }
+.mbar.signed::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(255,255,255,.36);
+  transform: translateX(-.5px);
+}
+.mbar.signed > i { position: absolute; top: 0; }
 
 /* ============================================================
    TABLE
@@ -487,8 +499,17 @@ body {
 }
 .yaml-toggle:hover { border-color: var(--line-2); color: var(--tx-0); background: var(--bg-3); }
 .motion-yaml { max-height: 130px; font-size: 10px; line-height: 1.45; margin: 0; }
-.keyframe-run { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 6px; }
+.keyframe-run { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .keyframe-run .btn { width: 100%; justify-content: center; min-width: 0; padding-left: 7px; padding-right: 7px; }
+.keyframe-run .sync-status { grid-column: 1 / -1; font-size: 11px; color: var(--tx-3); text-align: center; min-height: 16px; }
+.keyframe-run .operation-progress {
+  grid-column: 1 / -1; height: 4px; overflow: hidden;
+  border: 1px solid var(--line-1); border-radius: 2px; background: var(--bg-2);
+}
+.keyframe-run .operation-progress > div {
+  height: 100%; background: var(--cy); box-shadow: 0 0 8px var(--cy-glow);
+  transition: width 160ms linear;
+}
 .motion-lower { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; min-height: 0; }
 .panel-b.capture-body { padding: 8px 6px; align-items: center; }
 .timeline-wrap { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: stretch; }

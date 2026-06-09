@@ -119,6 +119,34 @@ function MBar({ value, max = 100, kind }) {
   return <div className={`mbar ${auto}`}><i style={{ width: pct + '%' }}></i></div>;
 }
 
+function SignedMBar({ value, max = 100, kind }) {
+  const safeMax = Math.max(1, Math.abs(Number(max) || 0));
+  const clamped = Math.max(-safeMax, Math.min(safeMax, Number(value) || 0));
+  const pct = Math.abs(clamped / safeMax) * 50;
+  const auto = kind || (Math.abs(clamped) / safeMax > .85 ? 'err' : Math.abs(clamped) / safeMax > .65 ? 'warn' : '');
+  const style = clamped < 0
+    ? { left: (50 - pct) + '%', width: pct + '%' }
+    : { left: '50%', width: pct + '%' };
+  return <div className={`mbar signed ${auto}`}><i style={style}></i></div>;
+}
+
+function motorEffortView(m) {
+  const value = Number(m.effortValue !== undefined ? m.effortValue : m.load) || 0;
+  const unit = m.effortUnit || '%';
+  const max = Math.max(1, Number(m.effortMax) || 100);
+  const ratio = Math.abs(value) / max;
+  return {
+    label: m.effortLabel || 'LOAD',
+    unit,
+    value,
+    max,
+    signed: !!m.effortSigned,
+    text: unit === 'mA' ? `${value.toFixed(1)} mA` : `${value.toFixed(0)}%`,
+    color: ratio > .85 ? 'var(--err)' : (ratio > .65 ? 'var(--warn)' : 'var(--tx-1)'),
+    kind: ratio > .85 ? 'err' : (ratio > .65 ? 'warn' : ''),
+  };
+}
+
 // ---- joint slider (shared control) ----
 function JointSlider({ jid, value, onChange, compact }) {
   const j = JOINTS.find(x => x.id === jid);

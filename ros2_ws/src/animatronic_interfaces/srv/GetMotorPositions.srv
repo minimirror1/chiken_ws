@@ -1,0 +1,6 @@
+---
+bool success
+string message
+builtin_interfaces/Time stamp
+MotorDiagnostic[] diagnostics
+MotorJointPosition[] joint_positions

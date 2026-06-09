@@ -1,3 +1,6 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -10,6 +13,15 @@ def generate_launch_description():
     namespace = LaunchConfiguration("namespace")
     mock_mode = LaunchConfiguration("mock_mode")
     config_dir = PathJoinSubstitution([FindPackageShare("chicken_bringup"), "config"])
+    bringup_config_dir = os.path.join(
+        get_package_share_directory("chicken_bringup"),
+        "config",
+    )
+    motor_config = (
+        os.path.join(bringup_config_dir, "motors.yaml")
+        if os.path.exists(os.path.join(bringup_config_dir, "motors.yaml"))
+        else os.path.join(bringup_config_dir, "motors.example.yaml")
+    )
 
     return LaunchDescription(
         [
@@ -21,7 +33,7 @@ def generate_launch_description():
                 name="motor_node",
                 namespace=namespace,
                 parameters=[
-                    PathJoinSubstitution([config_dir, "motors.yaml"]),
+                    motor_config,
                     {"namespace": namespace},
                 ],
             ),
