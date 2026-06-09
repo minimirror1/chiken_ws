@@ -31,6 +31,39 @@ function isOverSoft(jid, v) {
   return Math.abs(valToDeg(jid, v)) > j.soft;
 }
 
+function effortSpecForModel(model) {
+  const name = String(model || '').toUpperCase();
+  if (name.includes('XL320') || name.includes('XL-320')) {
+    return { label: 'LOAD', unit: '%', max: 100, signed: false, source: 'load' };
+  }
+  if (name.includes('XM430-W350')) {
+    return { label: 'CURRENT', unit: 'mA', max: 648 * 2.69, signed: true, source: 'current' };
+  }
+  if (name.includes('XM430-W210')) {
+    return { label: 'CURRENT', unit: 'mA', max: 1193 * 2.69, signed: true, source: 'current' };
+  }
+  if (name.includes('XM430')) {
+    return { label: 'CURRENT', unit: 'mA', max: 2000, signed: true, source: 'current' };
+  }
+  return { label: 'LOAD', unit: '%', max: 100, signed: false, source: 'load' };
+}
+
+function motorEffortFromDiagnostic(model, diagnosticLoad, fallback = {}) {
+  const spec = effortSpecForModel(model || fallback.model);
+  const hasDiagnosticLoad = diagnosticLoad !== undefined;
+  let value = Number(hasDiagnosticLoad ? diagnosticLoad : (fallback.effortValue !== undefined ? fallback.effortValue : fallback.load));
+  if (!Number.isFinite(value)) value = 0;
+  if (hasDiagnosticLoad && spec.source === 'load') value *= 100;
+  return {
+    load: value,
+    effortLabel: spec.label,
+    effortUnit: spec.unit,
+    effortValue: value,
+    effortMax: spec.max,
+    effortSigned: spec.signed,
+  };
+}
+
 // ---- seed patterns ----
 function defaultTangent(mode = 'auto') {
   return { in: { mode, dx: 120, dy: 0 }, out: { mode, dx: 120, dy: 0 }, broken: false };
@@ -73,7 +106,7 @@ const SEED_LOGS = [
   { lv: 'ok',   src: 'motion',   msg: "패턴 'idle_breathe' 로드 완료 (axis tracks)" },
   { lv: 'info', src: 'sensor',   msg: '감지 영역 진입: person#3 @ 2.4m / +18°' },
   { lv: 'cmd',  src: 'motion',   msg: "패턴 'greet_bob' 실행 (trigger: proximity)" },
-  { lv: 'warn', src: 'motor',    msg: 'upper_pitch 부하 일시 상승 41% — 정상 범위 복귀' },
+  { lv: 'warn', src: 'motor',    msg: 'upper_pitch 전류 일시 상승 41mA — 정상 범위 복귀' },
   { lv: 'ok',   src: 'motion',   msg: "패턴 'greet_bob' 완료 — 기준 자세 복귀" },
 ];
 
@@ -81,9 +114,11 @@ const SEED_LOGS = [
 function initMotors() {
   const m = {};
   JOINT_IDS.forEach((id, i) => {
+    const effort = motorEffortFromDiagnostic('XM430-W350', 8 + i * 2);
     m[id] = {
-      volt: 24.0, temp: 38 + i * 1.5, load: 8 + i * 2, pos: 0, raw: 2048,
+      volt: 24.0, temp: 38 + i * 1.5, pos: 0, raw: 2048,
       torque: true, error: 'OK', model: 'XM430-W350',
+      ...effort,
     };
   });
   return m;
@@ -217,6 +252,7 @@ function liveSim() {
     const targetLoad = m.torque ? (6 + Math.abs(s.joints[id]) * 0.18 + (s.playing ? 14 : 0)) : 0;
     m.load += (targetLoad - m.load) * 0.18 + (Math.random() - 0.5) * 1.2;
     m.load = Math.max(0, m.load);
+    m.effortValue = m.load;
     m.volt += ((m.torque ? 23.8 : 24.1) - m.volt) * 0.1 + (Math.random() - 0.5) * 0.05;
     m.pos = Math.round(valToDeg(id, s.joints[id]) * 10) / 10;
     m.raw = valToRaw(id, s.joints[id]);
@@ -279,6 +315,8 @@ window.defaultTangent = defaultTangent;
 window.valToDeg = valToDeg;
 window.valToRaw = valToRaw;
 window.isOverSoft = isOverSoft;
+window.effortSpecForModel = effortSpecForModel;
+window.motorEffortFromDiagnostic = motorEffortFromDiagnostic;
 window.nowHMS = nowHMS;
 
 // ============================================================
@@ -346,15 +384,19 @@ window.RosBridge = (function() {
               volt: 0, temp: 0, load: 0, pos: 0, raw: 2048,
               torque: false, error: 'OK', model: '',
             };
+            const model = m.model || m.model_name || current.model;
+            const effort = m.load !== undefined
+              ? motorEffortFromDiagnostic(model, m.load, current)
+              : motorEffortFromDiagnostic(model, undefined, current);
             motors[id] = {
               volt: m.voltage_v !== undefined ? m.voltage_v : (m.voltage !== undefined ? m.voltage : current.volt),
               temp: m.temperature_c !== undefined ? m.temperature_c : (m.temperature !== undefined ? m.temperature : current.temp),
-              load: m.load !== undefined ? m.load * 100 : current.load,
               pos: m.angle_deg !== undefined ? m.angle_deg : (m.present_position !== undefined ? ((m.present_position - 2048) * 360 / 4096) : current.pos),
               raw: m.raw_position !== undefined ? m.raw_position : (m.present_position !== undefined ? m.present_position : current.raw),
               torque: m.torque_enabled !== undefined ? m.torque_enabled : current.torque,
               error: (m.error_code === 0 || m.error_code === undefined) ? 'OK' : 'E' + m.error_code,
-              model: m.model || m.model_name || current.model,
+              model,
+              ...effort,
             };
           }
         });

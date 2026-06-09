@@ -83,6 +83,7 @@ function TabManual() {
             const errValue = view[id] - actualValue;
             const errAbs = Math.abs(errValue);
             const errColor = errAbs >= 10 ? 'var(--err)' : (errAbs >= 3 ? 'var(--warn)' : 'var(--tx-3)');
+            const effort = motorEffortView(m);
             return (
               <div key={id} style={{ padding: '9px 0', borderBottom: '1px dashed var(--line-0)' }}>
                 <div className="row between center" style={{ marginBottom: 5 }}>
@@ -100,7 +101,7 @@ function TabManual() {
                 <MBar value={Math.abs(view[id])} max={100} kind={over ? 'warn' : ''} />
                 <div className="row between" style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--tx-3)', marginTop: 4 }}>
                   <span>온도 {m.temp.toFixed(0)}°C</span>
-                  <span>부하 {m.load.toFixed(0)}%</span>
+                  <span>{effort.label.toLowerCase()} {effort.text}</span>
                   <span>{m.volt.toFixed(1)}V</span>
                 </div>
               </div>

@@ -354,6 +354,18 @@ body {
 .mbar.ok > i { background: var(--ok); }
 .mbar.warn > i { background: var(--warn); }
 .mbar.err > i { background: var(--err); }
+.mbar.signed { position: relative; }
+.mbar.signed::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(255,255,255,.36);
+  transform: translateX(-.5px);
+}
+.mbar.signed > i { position: absolute; top: 0; }
 
 /* ============================================================
    TABLE
